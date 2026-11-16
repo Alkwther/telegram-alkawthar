@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-press.json?v=2.3">
+<link rel="manifest" href="manifest-press.json?v=2.5">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -243,12 +243,14 @@ const WA_DISPLAY = '+964 770 184 9358';
 const TEACHER_APP_URL = '';
 // ▼ مفتاح إشعارات الويب: Firebase → Project settings → Cloud Messaging → Web Push certificates → Generate key pair
 //   (مطلوب فقط لوصول الإشعارات والتطبيق مغلق — راجع ملف functions/index.js)
-const VAPID_KEY = '';
+const VAPID_KEY = 'BCj4gzOTuwcQ08w25k5V0PIzsWSKLBACNkMOqASRqv6xU3ViyLADZuFVhNCqMmVQbqAseMzow_WkBeClDKfT9mY';
+// ▼ رابط خادم الإشعارات على Cloudflare (مثال: https://telegram-alkawthar-push.xxxx.workers.dev)
+const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 // ▲▲▲
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'press';   // هذا الملف خاص بـالمطبعة
-const APP_VERSION = '2.3';
+const APP_VERSION = '2.5';
 const MAX_FILE = 200 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -1396,6 +1398,7 @@ async function flushOutbox(){
         await fs.collection('msgr_queue').doc(m.id).set({conv: m.conv, from: m.from, to: m.to, kind: m.kind, text: m.text, name: m.name,
           mime: m.mime, size: m.size, ts: m.ts, rid: m.rid, thumb: m.thumb || null, w: m.w || 0, h: m.h || 0, dur: m.dur || 0, relay, chunks, reply: m.reply || null});
         delete upProg[m.id];
+        notifyPush([m.id]);
         const cur = await DB.get('msgs', m.id);
         if (cur){ cur.relayed = relay; if (cur.status !== 'delivered') cur.status = 'sent'; await DB.put('msgs', cur); refreshMsg(cur.id); touchConv(cur.conv, cur, false, true); }
       } catch(e){
@@ -2165,6 +2168,34 @@ async function sendShared(conv, files, text){
   if (text) await sendMessage(conv, {text});
 }
 
+/* ---------- إشعارات الهاتف والبرنامج مغلق (عبر خادم Cloudflare) ---------- */
+function notifyPush(ids){
+  if (DEMO || !PUSH_URL || !ids || !ids.length) return;
+  ids.forEach((id, i) => setTimeout(() => {
+    fetch(PUSH_URL, {method: 'POST', body: JSON.stringify({id}), keepalive: true}).catch(() => {});
+  }, i * 60));
+}
+// أداة: قراءة ملف نصي (مثل مفتاح Firebase) ونسخه للصقه في Cloudflare
+function copyFileTool(){
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json,text/*,*/*';
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    if (f.size > 200000) return toast('الملف كبير جداً');
+    const txt = await f.text();
+    const ov = sheet(`<h3>📋 ${esc(f.name)}</h3>
+      <div style="color:var(--mut);font-size:13.5px;margin-bottom:8px">اضغط «نسخ» ثم الصقه في المكان المطلوب. لا ترسل هذا المحتوى لأي شخص.</div>
+      <textarea id="cpT" readonly style="width:100%;height:150px;direction:ltr;font-size:11px;border:1px solid var(--line);border-radius:8px;padding:8px">${esc(txt)}</textarea>
+      <button class="btn" id="cpB">📋 نسخ</button><button class="btn sec" id="cpX">إغلاق</button>`);
+    ov.querySelector('#cpX').onclick = () => ov.remove();
+    ov.querySelector('#cpB').onclick = async () => {
+      const ta = ov.querySelector('#cpT');
+      try { await navigator.clipboard.writeText(txt); toast('تم النسخ ✅'); }
+      catch(e){ ta.focus(); ta.select(); try { document.execCommand('copy'); toast('تم النسخ ✅'); } catch(x){ toast('حدّد النص يدوياً وانسخه'); } }
+    };
+  };
+  inp.click();
+}
+
 /* ---------- التحديث التلقائي ---------- */
 let updateShown = false;
 async function checkUpdate(manual){
@@ -2396,7 +2427,9 @@ function showSettings(){
     <div class="fld"><label>عنوان TURN</label><input id="tu" dir="ltr" placeholder="turn:server:80" value="${esc(t.urls || '')}"></div>
     <div class="fld"><label>اسم المستخدم</label><input id="tn" dir="ltr" value="${esc(t.username || '')}"></div>
     <div class="fld"><label>كلمة المرور</label><input id="tp" dir="ltr" value="${esc(t.credential || '')}"></div>
-    <button class="btn" id="ts">حفظ</button>`);
+    <button class="btn" id="ts">حفظ</button>
+    ${S.role === 'press' ? '<button class="btn sec" id="stCp" style="margin-top:14px">📋 نسخ محتوى ملف (لإعداد الإشعارات)</button>' : ''}`);
+  if (ov.querySelector('#stCp')) ov.querySelector('#stCp').onclick = () => { ov.remove(); copyFileTool(); };
   ov.querySelector('.sheet h3').insertAdjacentHTML('afterend', `<button class="btn sec" id="stU" style="margin:0 0 12px">🔄 التحقق من وجود تحديث</button>`);
   ov.querySelector('#stU').onclick = async () => { ov.remove(); const v = await checkUpdate(true); if (v === APP_VERSION) toast('لديك أحدث نسخة ✅ (' + APP_VERSION + ')'); else if (!v) toast('تعذر التحقق — تأكد من الإنترنت'); };
   ov.querySelector('.sheet h3').insertAdjacentHTML('afterend', `
@@ -2465,6 +2498,7 @@ function showBroadcast(){
           locals.push({...data, id, status: 'sent', mine: true, fileKey: fk});
         }
         await batch.commit();
+        notifyPush(locals.map(x => x.id));
         for (const m of locals){ await DB.put('msgs', m); await touchConv(m.conv, m, false); }
       }
       toast(`تم الإرسال إلى ${tg.length} مدرس ✅`);
