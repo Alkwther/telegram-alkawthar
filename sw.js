@@ -1,6 +1,9 @@
 /* تلكرام الكوثر — Service Worker (للإشعارات فقط، لا يخزّن أي ملفات) */
-importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
+// إذا تعذّر تحميل مكتبة الإشعارات يبقى باقي البرنامج يعمل (التنزيل، المشاركة)
+try {
+  importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+  importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
+} catch (e) {}
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
@@ -8,7 +11,7 @@ self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 let cfg = null;
 try { cfg = JSON.parse(new URL(self.location).searchParams.get('c') || 'null'); } catch (e) {}
 
-if (cfg && cfg.apiKey && !String(cfg.apiKey).startsWith('PASTE')) {
+if (self.firebase && firebase.messaging && cfg && cfg.apiKey && !String(cfg.apiKey).startsWith('PASTE')) {
   firebase.initializeApp(cfg);
   const messaging = firebase.messaging();
   // إشعار يصل والتطبيق مغلق أو في الخلفية
@@ -24,6 +27,32 @@ if (cfg && cfg.apiKey && !String(cfg.apiKey).startsWith('PASTE')) {
     });
   });
 }
+
+// استقبال الملفات من قائمة «مشاركة» في الهاتف (أندرويد)
+function shareDB(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('ktg_share', 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore('press', {autoIncrement: true}); r.result.createObjectStore('teacher', {autoIncrement: true}); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+self.addEventListener('fetch', e => {
+  const u = new URL(e.request.url);
+  const m = e.request.method === 'POST' && u.pathname.match(/share-target-(press|teacher)$/);
+  if (!m) return;
+  const role = m[1];
+  e.respondWith((async () => {
+    try {
+      const fd = await e.request.formData();
+      const files = fd.getAll('files').filter(f => f && typeof f === 'object' && f.size > 0);
+      const item = {files, title: fd.get('title') || '', text: fd.get('text') || '', url: fd.get('url') || '', ts: Date.now()};
+      const db = await shareDB();
+      await new Promise((res, rej) => { const tx = db.transaction(role, 'readwrite'); tx.objectStore(role).add(item); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+      db.close();
+    } catch (err) {}
+    return Response.redirect('./telegram-alkawthar-' + role + '.html?share=1', 303);
+  })());
+});
 
 // فتح الصفحات من الإنترنت دائماً (لتحديث البرنامج تلقائياً)، مع رسالة عند انقطاع الإنترنت
 self.addEventListener('fetch', e => {

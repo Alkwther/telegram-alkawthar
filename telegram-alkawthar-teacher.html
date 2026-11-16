@@ -199,7 +199,7 @@ const VAPID_KEY = '';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 const MAX_FILE = 200 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -646,6 +646,7 @@ async function start(){
   beat(); flushOutbox();
   setupNotifications();
   setTimeout(pushLate, 4000);
+  setTimeout(checkShared, 1500);
   setInterval(() => { beat(); flushOutbox(); }, 120000);
   setInterval(() => { if (view === 'chat') updateChatHeader(); }, 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden){ beat(); flushOutbox(); } });
@@ -1784,6 +1785,73 @@ async function fetchRelay(id, rid, chunks, mime){
     console.warn('relay', e);
     delete dlProg[id]; refreshMsg(id);   // يبقى «تحميل» بالطريقة المباشرة
   }
+}
+
+/* ---------- استقبال ملفات من قائمة «مشاركة» في الهاتف ---------- */
+function shareDB(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('ktg_share', 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore('press', {autoIncrement: true}); r.result.createObjectStore('teacher', {autoIncrement: true}); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function takeShared(){
+  try {
+    const role = myAppRole() === 'press' || S.role === 'press' ? 'press' : 'teacher';
+    const db = await shareDB();
+    const items = await new Promise((res, rej) => {
+      const tx = db.transaction(role, 'readwrite'), st = tx.objectStore(role), q = st.getAll();
+      q.onsuccess = () => { st.clear(); res(q.result || []); }; q.onerror = () => rej(q.error);
+    });
+    db.close();
+    return items;
+  } catch(e){ return []; }
+}
+async function checkShared(){
+  if (location.search.indexOf('share=') >= 0) try { history.replaceState(null, '', location.pathname); } catch(e){}
+  const items = await takeShared();
+  if (!items.length) return;
+  const files = items.flatMap(i => i.files || []);
+  const text = items.map(i => [i.title, i.text, i.url].filter(Boolean).join('\n')).filter(Boolean).join('\n').trim();
+  if (!files.length && !text) return;
+  if (S.role === 'teacher') confirmShare(S.phone, files, text);
+  else pickShareTarget(files, text);
+}
+function shareSummary(files, text){
+  const imgs = files.filter(f => (f.type || '').startsWith('image/')).length, others = files.length - imgs;
+  return [imgs ? `🖼 ${imgs} صورة` : '', others ? `📄 ${others} ملف` : '', text ? '💬 نص' : ''].filter(Boolean).join(' • ');
+}
+function confirmShare(conv, files, text){
+  const ov = sheet(`<h3>إرسال إلى ${esc(convName(conv))}</h3>
+    <div style="color:var(--mut);margin-bottom:8px">${shareSummary(files, text)}</div>
+    <div style="max-height:160px;overflow:auto;font-size:14px;line-height:1.9">${files.map(f => '• ' + esc(f.name || 'ملف') + ' <span style="color:var(--mut)">(' + fmtSize(f.size) + ')</span>').join('<br>')}${text ? '<br>• ' + esc(text.slice(0, 120)) : ''}</div>
+    <button class="btn" id="shS">إرسال</button><button class="btn sec" id="shX">إلغاء</button>`);
+  ov.querySelector('#shX').onclick = () => ov.remove();
+  ov.querySelector('#shS').onclick = () => { ov.remove(); sendShared(conv, files, text); };
+}
+function pickShareTarget(files, text){
+  const recent = new Set();
+  const ov = sheet(`<h3>إرسال إلى…</h3>
+    <div style="color:var(--mut);margin:-6px 0 8px">${shareSummary(files, text)}</div>
+    <input id="shQ" placeholder="🔍 بحث عن مدرس" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:18px;background:#f3f6f8;outline:none;margin-bottom:6px">
+    <div id="shL" style="max-height:55dvh;overflow:auto"></div>`);
+  const draw = async () => {
+    const q = ov.querySelector('#shQ').value.trim().toLowerCase();
+    const convs = (await DB.all('convs')).filter(c => c.lastTs).sort((a, b) => b.lastTs - a.lastTs).map(c => c.id);
+    const all = [...new Set([...convs, ...Object.keys(directory)])].filter(id => directory[id] || convs.includes(id));
+    const list = all.filter(id => !q || (convName(id) + id).toLowerCase().includes(q)).slice(0, 80);
+    ov.querySelector('#shL').innerHTML = list.length ? list.map(id => `<div class="row" data-c="${esc(id)}" style="padding:6px 2px">${avatar(id, convName(id), 'sm')}<div class="mid" style="padding:4px 0 8px"><div class="nm">${esc(convName(id))}</div><div class="ls">${esc(directory[id]?.province || '')}</div></div></div>`).join('') : '<div class="empty" style="padding:20px">لا يوجد مدرسون</div>';
+    ov.querySelectorAll('#shL .row').forEach(r => r.onclick = () => { ov.remove(); confirmShare(r.dataset.c, files, text); });
+  };
+  ov.querySelector('#shQ').oninput = draw; draw();
+}
+async function sendShared(conv, files, text){
+  await openChat(conv);
+  for (const f of files){
+    const isImg = (f.type || '').startsWith('image/') && !/gif|svg/i.test(f.type);
+    await sendFiles([f], isImg);
+  }
+  if (text) await sendMessage(conv, {text});
 }
 
 /* ---------- التسجيل الصوتي ---------- */
