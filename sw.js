@@ -25,6 +25,14 @@ if (cfg && cfg.apiKey && !String(cfg.apiKey).startsWith('PASTE')) {
   });
 }
 
+// فتح الصفحات من الإنترنت دائماً (لتحديث البرنامج تلقائياً)، مع رسالة عند انقطاع الإنترنت
+self.addEventListener('fetch', e => {
+  if (e.request.mode !== 'navigate') return;
+  e.respondWith(fetch(e.request).catch(() => new Response(
+    '<!DOCTYPE html><html dir="rtl" lang="ar"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:Tahoma,sans-serif;text-align:center;padding:60px 20px;color:#444"><h2>لا يوجد اتصال بالإنترنت</h2><p>تأكد من الإنترنت ثم أعد فتح تلكرام الكوثر</p><button onclick="location.reload()" style="padding:12px 24px;font-size:16px;border:0;border-radius:9px;background:#3a8fd9;color:#fff">إعادة المحاولة</button></body></html>',
+    { headers: { 'Content-Type': 'text/html; charset=utf-8' } })));
+});
+
 // الضغط على الإشعار يفتح التطبيق
 self.addEventListener('notificationclick', e => {
   e.notification.close();

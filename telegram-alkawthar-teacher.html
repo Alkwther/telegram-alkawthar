@@ -9,6 +9,8 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="تلكرام الكوثر">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>تلكرام الكوثر — المدرس</title>
 <style>
 :root{--hdr:#517da2;--hdr2:#4a7396;--acc:#3a8fd9;--green:#4fae4e;--bg:#fff;--txt:#222;--mut:#8a959e;--line:#ececec;
@@ -197,7 +199,7 @@ const VAPID_KEY = '';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '1.5';
+const APP_VERSION = '1.7';
 const MAX_FILE = 200 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -507,7 +509,13 @@ async function init(){
     }
   }
   if (S && S.role === 'press' && !DEMO && auth.currentUser?.email !== PRESS_EMAIL) S = null;
+  registerSW();
   if (S) start(); else showLogin();
+  // نافذة تنزيل البرنامج تظهر للأستاذ عند فتح الرابط (إذا لم يكن مثبتاً)
+  if (!isStandalone() && myAppRole() === 'teacher' && !sessionStorage.getItem('ktg_inst')){
+    sessionStorage.setItem('ktg_inst', '1');
+    setTimeout(installSheet, 2200);
+  }
 }
 
 /* ---------- تسجيل الدخول ---------- */
@@ -540,9 +548,11 @@ function showLogin(){
     <h2>تلكرام الكوثر</h2>
     <p class="c">${APP_ROLE === 'press' ? 'نسخة المطبعة — تواصل مع المدرسين في كل العراق' : 'تواصل مباشر مع ' + APP_NAME}<br>ملفاتك تبقى في جهازك وتنتقل مباشرة عند التحميل</p>
     <div class="seg"><button class="act" style="cursor:default">${APP_ROLE === 'press' ? 'دخول المطبعة' : 'دخول المدرس'}</button></div>
-    ${form}<div class="err" id="lerr"></div></div>`;
+    ${form}<div class="err" id="lerr"></div>
+    ${isStandalone() ? '' : `<button class="btn sec" id="linst" style="margin-top:18px">📲 تنزيل البرنامج على الهاتف</button>`}</div>`;
     if ($('#lback')) $('#lback').onclick = () => { loginStep = 1; showLogin(); };
   if ($('#lforgot')) $('#lforgot').onclick = forgotSheet;
+  if ($('#linst')) $('#linst').onclick = installSheet;
   $('#lgo').onclick = doLogin;
   app().querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') doLogin(); });
 }
@@ -729,6 +739,7 @@ function openDrawer(){
       ${press ? `<button class="ditem" data-a="contacts">${I.people}المدرسون</button>
       <button class="ditem" data-a="pins">${I.key}الأرقام السرية للمدرسين</button>
       <button class="ditem" data-a="broad">${I.mega}رسالة جماعية</button>` : ''}
+      ${isStandalone() ? '' : `<button class="ditem" data-a="install"><span style="font-size:22px;width:24px;text-align:center">📲</span>تنزيل البرنامج على الهاتف</button>`}
       <button class="ditem" data-a="share">${I.share.replace('width="22" height="22"', 'width="24" height="24"')}مشاركة البرنامج${press ? ' مع المدرسين' : ''}</button>
       <button class="ditem" data-a="storage">${I.disk}ذاكرة الجهاز</button>
       <button class="ditem" data-a="settings">${I.gear}الإعدادات</button>
@@ -748,6 +759,7 @@ function openDrawer(){
     else if (a === 'pins') showPins();
     else if (a === 'storage') showStorage();
     else if (a === 'share') shareApp();
+    else if (a === 'install') installSheet();
     else if (a === 'settings') showSettings();
     else if (a === 'out') logout();
   });
@@ -951,6 +963,7 @@ function paintAudio(){
 }
 
 /* ---------- عرض / حفظ / مشاركة ---------- */
+const isMobile = () => /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 async function saveFile(fk, name){
   const blob = await DB.get('files', fk);
   if (!blob) return toast('الملف غير موجود في الجهاز');
@@ -958,15 +971,38 @@ async function saveFile(fk, name){
   a.href = URL.createObjectURL(blob); a.download = name || 'file';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 15000);
+  if (isMobile()) toast('تم الحفظ في مجلد التنزيلات (Download) ✅');
 }
-async function shareFile(fk, name){
+// على اللابتوب: نافذة لاختيار مكان الحفظ واسم الملف
+async function saveFileAs(fk, name){
   const blob = await DB.get('files', fk);
   if (!blob) return toast('الملف غير موجود في الجهاز');
-  const file = new File([blob], name || 'file', {type: blob.type});
+  if (window.showSaveFilePicker && !isMobile()){
+    try {
+      const ext = ((name || '').split('.').pop() || '').toLowerCase();
+      const opts = {suggestedName: name || 'file'};
+      if (ext && ext.length <= 5 && blob.type) opts.types = [{description: name, accept: {[blob.type]: ['.' + ext]}}];
+      const h = await window.showSaveFilePicker(opts);
+      const w = await h.createWritable(); await w.write(blob); await w.close();
+      toast('تم الحفظ ✅'); return;
+    } catch(e){ if (e && e.name === 'AbortError') return; }
+  }
+  saveFile(fk, name);
+}
+async function fileForShare(fk, name){
+  const blob = await DB.get('files', fk);
+  if (!blob) return null;
+  return new File([blob], name || 'file', {type: blob.type || 'application/octet-stream'});
+}
+const canShareFiles = () => { try { return !!(navigator.canShare && navigator.canShare({files: [new File(['x'], 'x.pdf', {type: 'application/pdf'})]})); } catch(e){ return false; } };
+// على الهاتف: قائمة تطبيقات الهاتف (فتح بواسطة / إرسال إلى)
+async function shareFile(fk, name){
+  const file = await fileForShare(fk, name);
+  if (!file) return toast('الملف غير موجود في الجهاز');
   try {
-    if (navigator.canShare && navigator.canShare({files: [file]})) await navigator.share({files: [file]});
+    if (navigator.canShare && navigator.canShare({files: [file]})) await navigator.share({files: [file], title: name});
     else saveFile(fk, name);
-  } catch(e){}
+  } catch(e){ if (e && e.name !== 'AbortError') saveFile(fk, name); }
 }
 async function openFile(fk){
   const u = await getUrl(fk); if (!u) return;
@@ -974,28 +1010,51 @@ async function openFile(fk){
   document.body.appendChild(a); a.click(); a.remove();
 }
 function fileActions(m){
-  const ov = sheet(`<h3 style="word-break:break-all">${esc(m.name)}</h3>
-    <button class="opt" data-a="open">${I.doc}فتح</button>
-    <button class="opt" data-a="save">${I.save}حفظ في الجهاز</button>
-    ${navigator.canShare ? `<button class="opt" data-a="share">${I.share}مشاركة (واتساب وغيره)</button>` : ''}`);
+  const mobile = isMobile(), share = canShareFiles();
+  const isPdf = /pdf/i.test(m.mime || '') || /\.pdf$/i.test(m.name || '');
+  const icon = isPdf ? '📕' : '📄';
+  let opts = '';
+  if (mobile){
+    if (share) opts += `<button class="opt" data-a="share">${I.doc}فتح بواسطة تطبيق في الهاتف${isPdf ? ' (قارئ PDF…)' : ''}</button>`;
+    opts += `<button class="opt" data-a="save">${I.save}حفظ في الهاتف</button>`;
+    if (share) opts += `<button class="opt" data-a="share">${I.share}مشاركة (واتساب، تلكرام…)</button>`;
+    else opts += `<button class="opt" data-a="open">${I.doc}فتح</button>`;
+  } else {
+    opts += `<button class="opt" data-a="open">${I.doc}فتح</button>`;
+    opts += `<button class="opt" data-a="saveas">${I.save}حفظ في مكان على الجهاز…</button>`;
+    if (share) opts += `<button class="opt" data-a="share">${I.share}مشاركة</button>`;
+  }
+  const ov = sheet(`<div style="display:flex;gap:12px;align-items:center;margin-bottom:10px">
+      <span style="font-size:34px">${icon}</span>
+      <div style="min-width:0"><div style="font-weight:600;word-break:break-all;line-height:1.4">${esc(m.name)}</div><div style="color:var(--mut);font-size:13px">${fmtSize(m.size)}</div></div></div>
+    ${opts}`);
   ov.querySelectorAll('.opt').forEach(b => b.onclick = () => {
     ov.remove();
     const a = b.dataset.a;
     if (a === 'open') openFile(m.fileKey);
     else if (a === 'save') saveFile(m.fileKey, m.name);
+    else if (a === 'saveas') saveFileAs(m.fileKey, m.name);
     else shareFile(m.fileKey, m.name);
   });
 }
 async function openViewer(m){
   const u = await getUrl(m.fileKey); if (!u) return;
+  const name = m.name && /\.\w+$/.test(m.name) ? m.name : 'image-' + m.id + '.jpg';
+  const mobile = isMobile(), share = canShareFiles();
   const v = document.createElement('div'); v.className = 'viewer';
-  v.innerHTML = `<div class="vt"><button class="ib" id="vx">${I.back}</button><div style="flex:1;font-size:15px">${esc(m.mine ? 'أنت' : convName(m.conv))}<div style="font-size:12.5px;opacity:.7">${fmtTime(m.ts)}</div></div>
-    <button class="ib" id="vs">${I.save}</button>${navigator.canShare ? `<button class="ib" id="vsh">${I.share}</button>` : ''}</div>
-    <div class="vb"><img src="${u}" alt=""></div>`;
+  const bbtn = 'flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;color:#fff;font-size:13px;padding:8px 4px;border-radius:10px';
+  v.innerHTML = `<div class="vt"><button class="ib" id="vx">${I.back}</button><div style="flex:1;font-size:15px">${esc(m.mine ? 'أنت' : convName(m.conv))}<div style="font-size:12.5px;opacity:.7">${fmtTime(m.ts)}</div></div></div>
+    <div class="vb"><img src="${u}" alt=""></div>
+    <div style="display:flex;gap:6px;padding:8px 10px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:rgba(0,0,0,.6)">
+      <button id="vs" style="${bbtn}">${I.save}${mobile ? 'حفظ في الهاتف' : 'حفظ في مكان على الجهاز'}</button>
+      ${share ? `<button id="vsh" style="${bbtn}">${I.share}مشاركة</button>` : ''}
+      ${!mobile ? `<button id="vo" style="${bbtn}">${I.img.replace('width="28" height="28"', 'width="22" height="22"')}فتح بحجم كامل</button>` : ''}
+    </div>`;
   document.body.appendChild(v);
   v.querySelector('#vx').onclick = () => v.remove();
-  v.querySelector('#vs').onclick = () => saveFile(m.fileKey, m.name || 'image.jpg');
-  if (v.querySelector('#vsh')) v.querySelector('#vsh').onclick = () => shareFile(m.fileKey, m.name || 'image.jpg');
+  v.querySelector('#vs').onclick = () => mobile ? saveFile(m.fileKey, name) : saveFileAs(m.fileKey, name);
+  if (v.querySelector('#vsh')) v.querySelector('#vsh').onclick = () => shareFile(m.fileKey, name);
+  if (v.querySelector('#vo')) v.querySelector('#vo').onclick = () => openFile(m.fileKey);
 }
 
 /* =====================================================================
@@ -1367,7 +1426,7 @@ async function downloadMsg(id, silent){
     cur.fileKey = id; cur.fileState = 'done';
     await DB.put('msgs', cur);
     delete dlProg[id]; refreshMsg(id);
-    if (cur.kind === 'file' && !silent) saveFile(id, cur.name);
+    if (cur.kind === 'file' && !silent) fileActions(cur);
     if (cur.kind === 'audio' && !silent) toggleAudio(cur);
   } catch(e){
     console.warn(e);
@@ -1573,11 +1632,66 @@ function playSend(){
     o.start(t + .1); o.stop(t + .24);
   } catch(e){}
 }
+let swReady = null;
+function registerSW(){
+  if (DEMO || !('serviceWorker' in navigator)) return null;
+  if (!swReady) swReady = navigator.serviceWorker.register('sw.js?c=' + encodeURIComponent(JSON.stringify(firebaseConfig)))
+    .then(r => (swReg = r)).catch(e => { console.warn('sw', e); return null; });
+  return swReady;
+}
 async function setupNotifications(){
-  if (DEMO || !('serviceWorker' in navigator)) return;
-  try { swReg = await navigator.serviceWorker.register('sw.js?c=' + encodeURIComponent(JSON.stringify(firebaseConfig))); }
-  catch(e){ console.warn('sw', e); return; }
+  await registerSW();
+  if (!swReg) return;
   if ('Notification' in window && Notification.permission === 'granted') registerPush();
+}
+
+/* ---------- تنزيل البرنامج على الهاتف ---------- */
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; if ($('#instBody')) fillInstall(); });
+window.addEventListener('appinstalled', () => { deferredInstall = null; toast('تم تنزيل البرنامج على هاتفك ✅'); const o = $('#instOv'); if (o) o.remove(); });
+const isStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const inAppBrowser = () => /FBAN|FBAV|Instagram|WhatsApp|Line\/|Snapchat|TikTok/i.test(navigator.userAgent);
+const myAppRole = () => typeof APP_ROLE !== 'undefined' ? APP_ROLE : loginRole;
+const SHARE_IOS = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#007aff" stroke-width="2" style="display:inline;vertical-align:-4px"><path d="M12 15V3m0 0L8 7m4-4l4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>';
+function installSheet(){
+  if (isStandalone()) return toast('البرنامج مثبّت على هاتفك ✅');
+  const old = $('#instOv'); if (old) old.remove();
+  const ov = sheet(`<div style="text-align:center">
+      <img src="icon-192.png" alt="" style="width:72px;height:72px;border-radius:18px;margin:0 auto 10px;display:block;background:#4a8ad0" onerror="this.style.display='none'">
+      <h3 style="margin-bottom:4px">تنزيل تلكرام الكوثر</h3>
+      <div style="color:var(--mut);font-size:14px;margin-bottom:12px">يظهر على شاشة هاتفك مثل أي تطبيق، ويفتح بضغطة واحدة</div></div>
+    <div id="instBody"></div>
+    <button class="btn sec" id="instLater">لاحقاً</button>`);
+  ov.id = 'instOv';
+  ov.querySelector('#instLater').onclick = () => ov.remove();
+  fillInstall();
+}
+function fillInstall(){
+  const box = $('#instBody'); if (!box) return;
+  const step = (n, t) => `<div style="display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid #f0f0f0"><span style="flex-shrink:0;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600">${n}</span><span style="line-height:1.7;font-size:15px">${t}</span></div>`;
+  if (deferredInstall){
+    box.innerHTML = `<button class="btn" id="instNow" style="font-size:17px;padding:15px">📲 تنزيل البرنامج الآن</button>`;
+    box.querySelector('#instNow').onclick = async () => {
+      const ev = deferredInstall; deferredInstall = null;
+      try { ev.prompt(); const r = await ev.userChoice; if (r && r.outcome === 'accepted'){ const o = $('#instOv'); if (o) o.remove(); } } catch(e){}
+    };
+  } else if (isIOS()){
+    box.innerHTML = `<div style="font-weight:600;margin-bottom:4px">على الآيفون:</div>` +
+      (inAppBrowser() ? step('!', 'أنت داخل واتساب أو تطبيق آخر — اضغط <b>⋯</b> أو <b>⬆️</b> ثم اختر <b>«فتح في Safari»</b> وأكمل الخطوات') : '') +
+      step(1, 'افتح الرابط بمتصفح <b>Safari</b>') +
+      step(2, `اضغط زر المشاركة ${SHARE_IOS} أسفل الشاشة`) +
+      step(3, 'انزل للأسفل واختر <b>«إضافة إلى الشاشة الرئيسية»</b>') +
+      step(4, 'اضغط <b>«إضافة»</b> — تظهر أيقونة تلكرام الكوثر على شاشتك') +
+      `<div class="note">بعد التنزيل افتح البرنامج من الأيقونة دائماً، حتى تصلك الإشعارات.</div>`;
+  } else {
+    box.innerHTML = `<div style="font-weight:600;margin-bottom:4px">على الأندرويد:</div>` +
+      (inAppBrowser() ? step('!', 'أنت داخل واتساب أو تطبيق آخر — اضغط <b>⋮</b> ثم اختر <b>«فتح في Chrome»</b> وأكمل الخطوات') : '') +
+      step(1, 'افتح الرابط بمتصفح <b>Chrome</b>') +
+      step(2, 'اضغط <b>⋮</b> أعلى الشاشة') +
+      step(3, 'اختر <b>«تثبيت التطبيق»</b> أو <b>«إضافة إلى الشاشة الرئيسية»</b>') +
+      step(4, 'اضغط <b>«تثبيت»</b> — تظهر أيقونة تلكرام الكوثر على شاشتك');
+  }
 }
 async function enableNotifications(){
   if (!('Notification' in window)) return toast('هذا المتصفح لا يدعم الإشعارات — ثبّت التطبيق على الشاشة الرئيسية ثم حاول', 3500);
@@ -1828,7 +1942,7 @@ async function msgMenu(id){
     ov.remove();
     const a = b.dataset.a;
     if (a === 'copy'){ try { await navigator.clipboard.writeText(m.text); toast('تم النسخ'); } catch(e){ toast('تعذر النسخ'); } }
-    else if (a === 'save') saveFile(m.fileKey, m.name || 'file');
+    else if (a === 'save') (isMobile() ? saveFile : saveFileAs)(m.fileKey, m.name || 'file');
     else if (a === 'share') shareFile(m.fileKey, m.name || 'file');
     else if (a === 'retry') flushOutbox();
     else if (a === 'del'){
