@@ -2,9 +2,9 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-teacher.json?v=2.0">
+<link rel="manifest" href="manifest-teacher.json?v=2.1">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -21,7 +21,8 @@ body{font-family:Roboto,'Segoe UI',Tahoma,'Noto Sans Arabic',sans-serif;backgrou
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;font-size:inherit}
 input,textarea,select{font-family:inherit;font-size:16px}
 svg{display:block}
-#app{height:100dvh;max-width:820px;margin:0 auto;background:#fff;position:relative;overflow:hidden;display:flex;flex-direction:column}
+html,body{position:fixed;inset:0;overscroll-behavior:none}
+#app{position:fixed;top:0;bottom:0;left:0;right:0;max-width:820px;margin:0 auto;background:#fff;overflow:hidden;display:flex;flex-direction:column}
 /* header */
 .hdr{background:var(--hdr);color:#fff;display:flex;align-items:center;gap:6px;padding:0 6px;padding-top:env(safe-area-inset-top);min-height:56px;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.18);z-index:2}
 .hdr .ttl{flex:1;min-width:0;padding:0 6px}
@@ -67,7 +68,7 @@ svg{display:block}
 .ditem svg{color:#8e9aa3;flex-shrink:0}
 /* chat */
 .chat{flex:1;display:flex;flex-direction:column;min-height:0;background:var(--wall) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23b4cba6' stroke-width='1.6' opacity='.55'%3E%3Ccircle cx='20' cy='22' r='7'/%3E%3Cpath d='M70 15l8 8-8 8-8-8z'/%3E%3Cpath d='M100 60c6 0 6 10 0 10s-6-10 0-10z'/%3E%3Crect x='30' y='75' width='14' height='10' rx='2'/%3E%3Cpath d='M80 95l10 4-10 4'/%3E%3Cpath d='M10 100q6-8 12 0'/%3E%3C/g%3E%3C/svg%3E")}
-.msgs{flex:1;overflow-y:auto;padding:8px 8px 4px;display:flex;flex-direction:column}
+.msgs{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:8px 8px 4px;display:flex;flex-direction:column;position:relative}
 .day{align-self:center;background:rgba(80,110,80,.42);color:#fff;font-size:13.5px;padding:3px 11px;border-radius:13px;margin:9px 0 7px;font-weight:500}
 .b{max-width:82%;border-radius:13px;background:var(--theirs);box-shadow:0 1px .6px rgba(0,0,0,.14);align-self:flex-start;position:relative;margin:1.5px 7px;word-wrap:break-word;overflow-wrap:anywhere}
 .b.mine{background:var(--mine);align-self:flex-end}
@@ -243,7 +244,7 @@ const VAPID_KEY = '';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.1';
 const MAX_FILE = 200 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -980,6 +981,32 @@ function bindBubble(el){
   el.querySelectorAll('[data-fk]').forEach(async img => { const u = await getUrl(img.dataset.fk); if (u) img.src = u; });
   if (!el._g){ el._g = 1; attachGestures(el, id); }
 }
+/* ---------- تثبيت الصفحة: لا تنزاح مع الكيبورد (حتى لا يختفي الاسم أو خانة الكتابة) ---------- */
+function pinPage(){
+  if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
+  const a = document.getElementById('app'); if (a && a.scrollTop) a.scrollTop = 0;
+  if (document.body.scrollTop) document.body.scrollTop = 0;
+  if (document.documentElement.scrollTop) document.documentElement.scrollTop = 0;
+}
+window.addEventListener('scroll', pinPage, {passive: true});
+document.addEventListener('focusout', () => setTimeout(pinPage, 60));
+if (window.visualViewport){
+  const vv = () => {
+    const a = document.getElementById('app'); if (!a) return;
+    // عند فتح الكيبورد: نجعل التطبيق بحجم الجزء الظاهر من الشاشة فقط
+    a.style.height = window.visualViewport.height + 'px';
+    a.style.bottom = 'auto';
+    pinPage();
+    const box = document.getElementById('msgs');
+    if (box && box._atBottom) box.scrollTop = box.scrollHeight;
+  };
+  window.visualViewport.addEventListener('resize', vv);
+  window.visualViewport.addEventListener('scroll', pinPage);
+}
+document.addEventListener('scroll', e => { const t = e.target; if (t && t.id === 'msgs') t._atBottom = t.scrollHeight - t.scrollTop - t.clientHeight < 60; }, true);
+document.addEventListener('DOMContentLoaded', () => { const a = document.getElementById('app'); if (a) a.addEventListener('scroll', pinPage, {passive: true}); });
+setTimeout(() => { const a = document.getElementById('app'); if (a) a.addEventListener('scroll', pinPage, {passive: true}); }, 0);
+
 /* ---------- اللمس: ضغطة / ضغطتين / ضغطة طويلة / سحب للرد ---------- */
 function attachGestures(el, id){
   let sx = null, sy = 0, moved = false, swiping = false, dx = 0, lp = null, lastTap = 0, tapTimer = null, swi = null;
@@ -1071,7 +1098,8 @@ function listenReacts(){
 function jumpTo(id){
   const el = document.querySelector(`.b[data-id="${CSS.escape(id)}"]`);
   if (!el) return toast('الرسالة الأصلية غير موجودة في جهازك');
-  el.scrollIntoView({behavior: 'smooth', block: 'center'});
+  const box = $('#msgs');
+  if (box) box.scrollTo({top: el.offsetTop - box.clientHeight / 2 + el.offsetHeight / 2, behavior: 'smooth'});
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
   setTimeout(() => el.classList.remove('flash'), 1500);
 }
