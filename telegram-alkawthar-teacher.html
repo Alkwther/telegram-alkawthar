@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-teacher.json?v=2.1">
+<link rel="manifest" href="manifest-teacher.json?v=2.3">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -199,6 +199,10 @@ a.btn{display:flex;align-items:center;justify-content:center;gap:9px;text-decora
 .rbar2 b{color:var(--acc);font-size:14px;display:block}
 .rbar2 span{font-size:14px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
 .rbar2 .ib{width:36px;height:36px;color:#8e9aa3}
+.rad{width:20px;height:20px;border-radius:50%;border:2px solid #b9c4cc;display:inline-block;flex-shrink:0;position:relative}
+.rad.on{border-color:var(--acc)}
+.rad.on::after{content:'';position:absolute;inset:3px;border-radius:50%;background:var(--acc)}
+.sheet .kv{border-left:none;border-right:none;border-top:none;background:none;font-family:inherit}
 </style>
 </head>
 <body>
@@ -244,7 +248,7 @@ const VAPID_KEY = '';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '2.1';
+const APP_VERSION = '2.3';
 const MAX_FILE = 200 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -662,6 +666,7 @@ async function setSession(s){
 async function start(){
   await loadAvatars();
   await loadTone();
+  await loadSendTone();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   listenQueue(); listenReceipts(); listenSignals(); listenReacts();
   if (DEMO) startDemoBot();
@@ -1821,64 +1826,123 @@ function unlockAudio(){
   } catch(e){}
 }
 document.addEventListener('pointerdown', unlockAudio, {passive: true});
-// نغمة قصيرة من نوتتين (تُولَّد داخل التطبيق، لا تحتاج ملف صوت)
-let toneUrl = null, toneEl = null;
+/* ---------- مكتبة الأصوات (تُولَّد داخل التطبيق — لا تحتاج ملفات) ---------- */
+function tn(c, out, t0, o){   // نغمة واحدة
+  const osc = c.createOscillator(), g = c.createGain();
+  osc.type = o.type || 'sine';
+  osc.frequency.setValueAtTime(o.f, t0);
+  if (o.f2) osc.frequency.exponentialRampToValueAtTime(o.f2, t0 + (o.glide || o.d * .6));
+  g.gain.setValueAtTime(.0001, t0);
+  g.gain.exponentialRampToValueAtTime(o.v || .3, t0 + (o.a || .006));
+  g.gain.exponentialRampToValueAtTime(.0001, t0 + o.d);
+  osc.connect(g); g.connect(out); osc.start(t0); osc.stop(t0 + o.d + .03);
+}
+function nz(c, out, t0, o){   // ضوضاء مفلترة (ووش)
+  const len = Math.floor(c.sampleRate * o.d), buf = c.createBuffer(1, len, c.sampleRate), ch = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
+  const src = c.createBufferSource(); src.buffer = buf;
+  const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = o.q || 1.1;
+  bp.frequency.setValueAtTime(o.f, t0); bp.frequency.exponentialRampToValueAtTime(o.f2, t0 + o.d);
+  const g = c.createGain();
+  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(o.v || .2, t0 + (o.a || .04)); g.gain.exponentialRampToValueAtTime(.0001, t0 + o.d);
+  src.connect(bp); bp.connect(g); g.connect(out); src.start(t0); src.stop(t0 + o.d);
+}
+const SOUNDS = {
+  send: [
+    {id: 'pop',    name: 'فقاعة',        play: (c, o, t) => { tn(c, o, t, {f: 420, f2: 1150, glide: .055, d: .13, v: .42, a: .007}); tn(c, o, t + .045, {type: 'triangle', f: 1500, f2: 2100, d: .08, v: .09}); }},
+    {id: 'tick',   name: 'نقرة ناعمة',    play: (c, o, t) => { tn(c, o, t, {f: 1800, f2: 1300, d: .05, v: .35, a: .002}); tn(c, o, t + .055, {f: 2300, f2: 1700, d: .05, v: .22, a: .002}); }},
+    {id: 'whoosh', name: 'ووش',           play: (c, o, t) => { nz(c, o, t, {f: 700, f2: 4200, d: .2, v: .4}); tn(c, o, t + .1, {f: 520, f2: 880, d: .1, v: .1}); }},
+    {id: 'drop',   name: 'قطرة',          play: (c, o, t) => { tn(c, o, t, {f: 1400, f2: 520, glide: .08, d: .16, v: .4, a: .003}); }},
+    {id: 'swish',  name: 'سهم',           play: (c, o, t) => { nz(c, o, t, {f: 2500, f2: 6000, d: .12, v: .16, a: .02, q: 2}); tn(c, o, t + .02, {f: 900, f2: 1600, d: .09, v: .18}); }},
+    {id: 'bubble', name: 'فقاعتين',       play: (c, o, t) => { tn(c, o, t, {f: 500, f2: 1000, d: .08, v: .35, a: .004}); tn(c, o, t + .07, {f: 700, f2: 1400, d: .09, v: .3, a: .004}); }}
+  ],
+  recv: [
+    {id: 'twonote', name: 'نوتتين',       play: (c, o, t) => { tn(c, o, t, {f: 987.8, d: .42, v: .3, a: .015}); tn(c, o, t + .1, {f: 1318.5, d: .42, v: .3, a: .015}); }},
+    {id: 'tritone', name: 'ثلاث نغمات',   play: (c, o, t) => { [[1318.5, 0], [1568, .09], [2093, .18]].forEach(([f, d]) => tn(c, o, t + d, {f, d: .35, v: .24, a: .01})); }},
+    {id: 'note',    name: 'نوتة',          play: (c, o, t) => { tn(c, o, t, {f: 1046.5, d: .5, v: .3, a: .008}); tn(c, o, t, {f: 2093, d: .3, v: .07, a: .008}); tn(c, o, t + .12, {f: 1568, d: .55, v: .26, a: .01}); }},
+    {id: 'bell',    name: 'جرس',           play: (c, o, t) => { tn(c, o, t, {f: 880, d: 1.1, v: .28, a: .004}); tn(c, o, t, {f: 1760, d: .7, v: .1, a: .004}); tn(c, o, t, {f: 2640, d: .45, v: .05, a: .004}); }},
+    {id: 'pop2',    name: 'بوب مزدوج',     play: (c, o, t) => { tn(c, o, t, {f: 600, f2: 1200, d: .1, v: .38, a: .004}); tn(c, o, t + .12, {f: 800, f2: 1500, d: .12, v: .34, a: .004}); }},
+    {id: 'crystal', name: 'كريستال',       play: (c, o, t) => { tn(c, o, t, {f: 2093, d: .7, v: .18, a: .004}); tn(c, o, t + .08, {f: 3136, d: .6, v: .12, a: .004}); tn(c, o, t + .16, {f: 2637, d: .8, v: .14, a: .004}); }},
+    {id: 'drop',    name: 'قطرة ماء',      play: (c, o, t) => { tn(c, o, t, {f: 1600, f2: 600, glide: .07, d: .18, v: .4, a: .003}); tn(c, o, t + .2, {f: 1900, f2: 800, glide: .06, d: .15, v: .25, a: .003}); }}
+  ]
+};
+const sndChoice = k => localStorage.getItem('ktg_snd_' + k) || SOUNDS[k][0].id;
+const sndName = k => { const id = sndChoice(k); if (id === 'custom') return localStorage.getItem(k === 'send' ? 'ktg_send_name' : 'ktg_tone_name') || 'من الهاتف'; return (SOUNDS[k].find(x => x.id === id) || SOUNDS[k][0]).name; };
+function synthPlay(k, id){
+  try {
+    unlockAudio();
+    const c = audioCtx; if (!c || c.state !== 'running') return;
+    const out = c.createGain(); out.gain.value = .9; out.connect(c.destination);
+    (SOUNDS[k].find(x => x.id === id) || SOUNDS[k][0]).play(c, out, c.currentTime + .005);
+  } catch(e){}
+}
+let toneUrl = null, toneEl = null, sendUrl = null;
 async function loadTone(){
   const b = await DB.get('files', 'tone').catch(() => null);
   if (toneUrl) URL.revokeObjectURL(toneUrl);
   toneUrl = b instanceof Blob ? URL.createObjectURL(b) : null;
 }
-function playCustomTone(){
+async function loadSendTone(){
+  const b = await DB.get('files', 'tone_send').catch(() => null);
+  if (sendUrl) URL.revokeObjectURL(sendUrl);
+  sendUrl = b instanceof Blob ? URL.createObjectURL(b) : null;
+}
+function playFile(url, max){
   try {
-    if (toneEl){ toneEl.pause(); }
-    toneEl = new Audio(toneUrl); toneEl.volume = 1;
-    toneEl.play().catch(() => {});
-    const el = toneEl; setTimeout(() => { if (el && !el.paused){ el.pause(); } }, 5000);  // أقصى مدة 5 ثوانٍ
+    if (toneEl) toneEl.pause();
+    toneEl = new Audio(url); toneEl.play().catch(() => {});
+    const el = toneEl; setTimeout(() => { if (el && !el.paused) el.pause(); }, max);
   } catch(e){}
 }
-function playTone(){
+function playTone(){            // صوت وصول رسالة
   if (!soundOn()) return;
-  if (toneUrl) return playCustomTone();
-  try {
-    unlockAudio();
-    const c = audioCtx; if (!c || c.state !== 'running') return;
-    const t = c.currentTime;
-    [[987.8, 0], [1318.5, .1]].forEach(([f, d]) => {
-      const o = c.createOscillator(), g = c.createGain();
-      o.type = 'sine'; o.frequency.value = f;
-      g.gain.setValueAtTime(.0001, t + d);
-      g.gain.exponentialRampToValueAtTime(.3, t + d + .015);
-      g.gain.exponentialRampToValueAtTime(.0001, t + d + .42);
-      o.connect(g); g.connect(c.destination);
-      o.start(t + d); o.stop(t + d + .45);
+  const id = sndChoice('recv');
+  if (id === 'custom' && toneUrl) return playFile(toneUrl, 5000);
+  synthPlay('recv', id === 'custom' ? 'twonote' : id);
+}
+function playSend(){            // صوت إرسال رسالة
+  if (!soundOn()) return;
+  const id = sndChoice('send');
+  if (id === 'custom' && sendUrl) return playFile(sendUrl, 3000);
+  synthPlay('send', id === 'custom' ? 'pop' : id);
+}
+function soundPicker(k, onDone){
+  const isSend = k === 'send', fileKey = isSend ? 'tone_send' : 'tone', nameKey = isSend ? 'ktg_send_name' : 'ktg_tone_name';
+  const draw = () => {
+    const cur = sndChoice(k), hasFile = isSend ? !!sendUrl : !!toneUrl;
+    const rows = SOUNDS[k].map((x, i) => `<button class="opt sp" data-id="${x.id}" style="justify-content:space-between">
+        <span style="display:flex;gap:14px;align-items:center"><span class="rad ${cur === x.id ? 'on' : ''}"></span>${esc(x.name)}${i === 0 ? ' <small style="color:var(--mut)">(افتراضي)</small>' : ''}</span>
+        <span style="color:var(--acc);font-size:18px">▶</span></button>`).join('');
+    ov.querySelector('.sheet').innerHTML = `<h3>${isSend ? '📤 صوت إرسال الرسالة' : '🎵 نغمة وصول الرسائل'}</h3>
+      <div style="color:var(--mut);font-size:13.5px;margin:-8px 0 6px">اضغط على أي صوت لسماعه واختياره</div>
+      ${rows}
+      ${hasFile ? `<button class="opt sp" data-id="custom" style="justify-content:space-between"><span style="display:flex;gap:14px;align-items:center"><span class="rad ${cur === 'custom' ? 'on' : ''}"></span>📁 ${esc(localStorage.getItem(nameKey) || 'من الهاتف')}</span><span style="color:var(--acc);font-size:18px">▶</span></button>` : ''}
+      <button class="btn sec" id="spF" style="margin-top:10px">📁 اختيار صوت من ملفات الهاتف</button>
+      <button class="btn" id="spOk">تم</button>`;
+    ov.querySelectorAll('.sp').forEach(b => b.onclick = () => {
+      localStorage.setItem('ktg_snd_' + k, b.dataset.id);
+      unlockAudio();
+      if (soundOn()) (isSend ? playSend : playTone)(); else toast('الصوت مطفأ من الإعدادات');
+      draw();
     });
-  } catch(e){}
-}
-// صوت الإرسال: «ووش» قصير ناعم مثل صوت إرسال الرسالة في التلكرام
-function playSend(){
-  if (!soundOn()) return;
-  try {
-    unlockAudio();
-    const c = audioCtx; if (!c || c.state !== 'running') return;
-    const t = c.currentTime, dur = .2;
-    // ضوضاء مفلترة تنزلق للأعلى (ووش)
-    const buf = c.createBuffer(1, Math.floor(c.sampleRate * dur), c.sampleRate);
-    const ch = buf.getChannelData(0);
-    for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1);
-    const n = c.createBufferSource(); n.buffer = buf;
-    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.2;
-    bp.frequency.setValueAtTime(700, t); bp.frequency.exponentialRampToValueAtTime(4200, t + dur);
-    const ng = c.createGain();
-    ng.gain.setValueAtTime(.0001, t); ng.gain.exponentialRampToValueAtTime(.22, t + .05); ng.gain.exponentialRampToValueAtTime(.0001, t + dur);
-    n.connect(bp); bp.connect(ng); ng.connect(c.destination);
-    n.start(t); n.stop(t + dur);
-    // نقرة خفيفة في النهاية
-    const o = c.createOscillator(), og = c.createGain();
-    o.type = 'sine'; o.frequency.setValueAtTime(520, t + .1); o.frequency.exponentialRampToValueAtTime(880, t + .17);
-    og.gain.setValueAtTime(.0001, t + .1); og.gain.exponentialRampToValueAtTime(.12, t + .12); og.gain.exponentialRampToValueAtTime(.0001, t + .22);
-    o.connect(og); og.connect(c.destination);
-    o.start(t + .1); o.stop(t + .24);
-  } catch(e){}
+    ov.querySelector('#spF').onclick = () => {
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*';
+      inp.onchange = async () => {
+        const f = inp.files[0]; if (!f) return;
+        if (f.size > 5 * 1048576) return toast('الملف كبير — اختر صوتاً أصغر من 5 ميغابايت');
+        await DB.put('files', new Blob([await f.arrayBuffer()], {type: f.type}), fileKey);
+        localStorage.setItem(nameKey, (f.name || 'صوت').replace(/\.[^.]+$/, ''));
+        localStorage.setItem('ktg_snd_' + k, 'custom');
+        await (isSend ? loadSendTone : loadTone)();
+        if (soundOn()) (isSend ? playSend : playTone)();
+        draw();
+      };
+      inp.click();
+    };
+    ov.querySelector('#spOk').onclick = () => { ov.remove(); onDone && onDone(); };
+  };
+  const ov = sheet('');
+  draw();
 }
 let swReady = null;
 function registerSW(){
@@ -2338,34 +2402,10 @@ function showSettings(){
   ov.querySelector('.sheet h3').insertAdjacentHTML('afterend', `
     <div class="kv" style="align-items:center"><span>🔔 الإشعارات</span><b id="stN" style="color:var(--acc);cursor:pointer">${'Notification' in window ? (Notification.permission === 'granted' ? '✅ مفعّلة' : Notification.permission === 'denied' ? '🚫 مرفوضة' : 'تفعيل') : 'غير مدعومة'}</b></div>
     <div class="kv" style="align-items:center"><span>🔊 صوت الرسائل</span><b id="stS" style="color:var(--acc);cursor:pointer">${soundOn() ? 'تشغيل ✅' : 'مطفأ'}</b></div>
-    <div class="kv" style="align-items:center;border:none"><span>🎵 نغمة وصول الرسائل</span><b id="stTn" style="max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(toneUrl ? (localStorage.getItem('ktg_tone_name') || 'نغمة من الهاتف') : 'الافتراضية')}</b></div>
-    <div style="display:flex;gap:8px;margin-bottom:16px">
-      <button class="btn" id="stTp" style="margin:0;flex:2;padding:10px">اختيار من الهاتف</button>
-      <button class="btn sec" id="stTt" style="margin:0;flex:1;padding:10px">▶ تجربة</button>
-      <button class="btn sec" id="stTd" style="margin:0;flex:1;padding:10px;${toneUrl ? '' : 'display:none'}">افتراضية</button>
-    </div>`);
-  ov.querySelector('#stTt').onclick = () => { unlockAudio(); if (!soundOn()) return toast('الصوت مطفأ'); playTone(); };
-  ov.querySelector('#stTp').onclick = () => {
-    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*';
-    inp.onchange = async () => {
-      const f = inp.files[0]; if (!f) return;
-      if (f.size > 5 * 1048576) return toast('الملف كبير — اختر نغمة أصغر من 5 ميغابايت');
-      await DB.put('files', f, 'tone');
-      localStorage.setItem('ktg_tone_name', (f.name || 'نغمة').replace(/\.[^.]+$/, ''));
-      await loadTone();
-      ov.querySelector('#stTn').textContent = localStorage.getItem('ktg_tone_name');
-      ov.querySelector('#stTd').style.display = '';
-      toast('تم تغيير النغمة 🎵'); if (soundOn()) playTone();
-    };
-    inp.click();
-  };
-  ov.querySelector('#stTd').onclick = async () => {
-    await DB.del('files', 'tone'); localStorage.removeItem('ktg_tone_name');
-    await loadTone();
-    ov.querySelector('#stTn').textContent = 'الافتراضية';
-    ov.querySelector('#stTd').style.display = 'none';
-    toast('رجعت النغمة الافتراضية'); if (soundOn()) playTone();
-  };
+    <button class="kv" id="stTn" style="align-items:center;width:100%;text-align:right"><span>🎵 نغمة وصول الرسائل</span><b style="color:var(--acc)">${esc(sndName('recv'))} ›</b></button>
+    <button class="kv" id="sdTn" style="align-items:center;width:100%;text-align:right;margin-bottom:14px"><span>📤 صوت إرسال الرسالة</span><b style="color:var(--acc)">${esc(sndName('send'))} ›</b></button>`);
+  ov.querySelector('#stTn').onclick = () => { ov.remove(); soundPicker('recv', showSettings); };
+  ov.querySelector('#sdTn').onclick = () => { ov.remove(); soundPicker('send', showSettings); };
   ov.querySelector('#stN').onclick = () => {
     if (!('Notification' in window)) return;
     if (Notification.permission === 'denied') return toast('الإشعارات مرفوضة — فعّلها من إعدادات المتصفح لهذا الموقع', 3500);
