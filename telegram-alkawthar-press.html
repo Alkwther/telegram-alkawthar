@@ -198,6 +198,10 @@ const VAPID_KEY = '';
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'press';   // هذا الملف خاص بـالمطبعة
 const MAX_FILE = 200 * 1024 * 1024;
+// الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
+// الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
+const RELAY_MAX = 3 * 1024 * 1024;
+const CHUNK = 600 * 1024;
 const PROVINCES = ['بغداد','البصرة','نينوى','أربيل','النجف','كربلاء','بابل','ذي قار','ميسان','واسط','الديوانية','المثنى','ديالى','الأنبار','صلاح الدين','كركوك','السليمانية','دهوك','حلبجة'];
 const AV_COLORS = ['#e17076','#7bc862','#e5ca77','#65aadd','#a695e7','#ee7aae','#6ec9cb','#faa774'];
 
@@ -374,7 +378,12 @@ function makeMock(){
       where: (f, op, val) => query(c, v => v[f] === val),
       onSnapshot: cb => query(c, () => true).onSnapshot(cb)
     }),
-    batch(){ const ops = []; return {set: (r, v) => ops.push(() => r.set(v)), commit: async () => { for (const o of ops) await o(); }}; }
+    batch(){ const ops = []; return {set: (r, v) => ops.push(() => r.set(v)), commit: async () => { for (const o of ops) await o(); }}; },
+    async runTransaction(fn){
+      const ops = [];
+      const t = {get: r => r.get(), update: (r, v) => ops.push(() => r.update(v)), delete: r => ops.push(() => r.delete()), set: (r, v) => ops.push(() => r.set(v))};
+      const res = await fn(t); for (const o of ops) await o(); return res;
+    }
   };
   const am = {currentUser: {uid: 'demo'}, onAuthStateChanged(cb){ setTimeout(() => cb(am.currentUser), 0); return () => {}; }, signInAnonymously: async () => {}};
   return {fs: fsm, auth: am};
@@ -1027,8 +1036,13 @@ async function sendMessage(conv, {text = '', blob = null, name = '', mime = '', 
   const msg = {id, conv, from: myId(), to: peerOf(conv), kind: kind || (blob ? kindOf(mime) : 'text'), text, name, mime,
     size: blob ? blob.size : 0, ts: Date.now(), status: 'pending', mine: true, fileKey: blob ? id : null, rid: blob ? id : null, thumb: null, w: 0, h: 0, dur};
   if (blob){
+    try { blob = new Blob([await blob.arrayBuffer()], {type: blob.type || mime}); } catch(e){ toast('تعذر قراءة الملف'); return; }
     await DB.put('files', blob, id);
-    if (msg.kind === 'image') Object.assign(msg, await makeThumb(blob));
+    if (msg.kind === 'image'){
+      const th = await makeThumb(blob);
+      if (!th.thumb) msg.kind = 'file';   // صيغة صورة لا يعرضها المتصفح ← تُرسل كملف
+      Object.assign(msg, th);
+    }
   }
   await DB.put('msgs', msg);
   playSend();
@@ -1054,8 +1068,18 @@ async function flushOutbox(){
     const out = (await DB.all('msgs')).filter(m => m.mine && (m.status === 'pending' || m.status === 'failed')).sort((a, b) => a.ts - b.ts);
     for (const m of out){
       try {
+        let relay = false, chunks = 0;
+        if (m.fileKey && m.size <= RELAY_MAX){
+          const blob = await DB.get('files', m.fileKey);
+          if (blob instanceof Blob){
+            upProg[m.id] = 0; refreshMsg(m.id);
+            chunks = await uploadBlob(m.rid, blob, 1, p => { upProg[m.id] = p; refreshMsg(m.id); });
+            relay = true;
+          }
+        }
         await fs.collection('msgr_queue').doc(m.id).set({conv: m.conv, from: m.from, to: m.to, kind: m.kind, text: m.text, name: m.name,
-          mime: m.mime, size: m.size, ts: m.ts, rid: m.rid, thumb: m.thumb || null, w: m.w || 0, h: m.h || 0, dur: m.dur || 0});
+          mime: m.mime, size: m.size, ts: m.ts, rid: m.rid, thumb: m.thumb || null, w: m.w || 0, h: m.h || 0, dur: m.dur || 0, relay, chunks});
+        delete upProg[m.id];
         const cur = await DB.get('msgs', m.id);
         if (cur && cur.status !== 'delivered'){ cur.status = 'sent'; await DB.put('msgs', cur); refreshMsg(cur.id); touchConv(cur.conv, cur, false, true); }
       } catch(e){
@@ -1091,8 +1115,9 @@ async function receive(doc){
       try { navigator.vibrate && navigator.vibrate([90, 50, 90]); } catch(e){}
       if (!document.hidden) playTone();
       else showNotif(convName(conv), previewText(msg) || 'رسالة جديدة', 'm_' + doc.id);
-      // الرسائل الصوتية والصور الصغيرة تُحمّل تلقائياً إذا كان المرسل متصلاً
-      if (msg.rid && (msg.kind === 'audio' || (msg.kind === 'image' && msg.size < 1.5 * 1048576)) && isOnline(peerSeen(msg.from))) downloadMsg(msg.id, true);
+      if (msg.rid && d.relay) await fetchRelay(msg.id, d.rid, d.chunks, d.mime);
+      // الملفات الكبيرة: الصوت والصور تُحمّل تلقائياً إذا كان المرسل متصلاً
+      else if (msg.rid && (msg.kind === 'audio' || (msg.kind === 'image' && msg.size < 1.5 * 1048576)) && isOnline(peerSeen(msg.from))) downloadMsg(msg.id, true);
     }
     await doc.ref.delete().catch(() => {});
     await fs.collection('msgr_receipts').add({to: d.from, ids: [doc.id], ts: Date.now()}).catch(() => {});
@@ -1493,6 +1518,60 @@ function refreshNotifBanner(){
   h.after(d);
 }
 
+/* =====================================================================
+   النقل السريع: رفع مؤقت إلى السيرفر يُحذف فور وصوله
+   ===================================================================== */
+function blobToB64(b){
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = rej; r.readAsDataURL(b); });
+}
+function b64ToBytes(s){
+  const bin = atob(s); const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u;
+}
+async function uploadBlob(rid, blob, pending, onProg){
+  const n = Math.max(1, Math.ceil(blob.size / CHUNK));
+  for (let i = 0; i < n; i++){
+    const d = await blobToB64(blob.slice(i * CHUNK, (i + 1) * CHUNK));
+    await fs.collection('msgr_chunks').doc(rid + '_' + i).set({d});
+    onProg && onProg((i + 1) / n);
+  }
+  await fs.collection('msgr_blobs').doc(rid).set({pending, chunks: n, ts: Date.now()});
+  return n;
+}
+async function releaseBlob(rid){
+  const ref = fs.collection('msgr_blobs').doc(rid);
+  const r = await fs.runTransaction(async t => {
+    const s = await t.get(ref);
+    if (!s.exists) return null;
+    const p = (s.data().pending || 1) - 1;
+    if (p <= 0){ t.delete(ref); return {n: s.data().chunks || 0}; }
+    t.update(ref, {pending: p}); return null;
+  });
+  if (r) for (let i = 0; i < r.n; i++) await fs.collection('msgr_chunks').doc(rid + '_' + i).delete().catch(() => {});
+}
+async function fetchRelay(id, rid, chunks, mime){
+  dlProg[id] = 0; refreshMsg(id);
+  try {
+    const parts = [];
+    for (let i = 0; i < chunks; i++){
+      const c = await fs.collection('msgr_chunks').doc(rid + '_' + i).get();
+      if (!c.exists) throw new Error('missing');
+      parts.push(b64ToBytes(c.data().d));
+      dlProg[id] = (i + 1) / chunks; refreshMsg(id);
+    }
+    const blob = new Blob(parts, {type: mime || 'application/octet-stream'});
+    await DB.put('files', blob, id);
+    const cur = await DB.get('msgs', id);
+    if (cur){ cur.fileKey = id; cur.fileState = 'done'; await DB.put('msgs', cur); }
+    delete dlProg[id]; refreshMsg(id);
+    releaseBlob(rid).catch(e => console.warn(e));
+  } catch(e){
+    console.warn('relay', e);
+    delete dlProg[id]; refreshMsg(id);   // يبقى «تحميل» بالطريقة المباشرة
+  }
+}
+
 /* ---------- التسجيل الصوتي ---------- */
 let rec = null, recChunks = [], recTimer = null, recStart = 0, recCancel = false;
 async function startRecording(){
@@ -1774,16 +1853,19 @@ function showBroadcast(){
       if (file){
         if (file.type.startsWith('image/')) file = await compressImage(file);
         fk = uid(); mime = file.type || 'application/octet-stream'; name = file.name || 'file'; size = file.size; kind = kindOf(mime);
+        file = new Blob([await file.arrayBuffer()], {type: mime});
         await DB.put('files', file, fk);
         if (kind === 'image') th = await makeThumb(file);
         if (kind === 'audio') dur = await mediaDuration(file);
       }
+      let relay = false, chunks = 0;
+      if (file && file.size <= RELAY_MAX){ btn.textContent = 'جارِ رفع المرفق...'; chunks = await uploadBlob(fk, file, tg.length); relay = true; }
       const ts = Date.now();
       for (let i = 0; i < tg.length; i += 400){
         const batch = fs.batch(), locals = [];
         for (const t of tg.slice(i, i + 400)){
           const id = uid();
-          const data = {conv: t.phone, from: 'press', to: t.phone, kind, text, name, mime, size, ts, rid: fk, thumb: th.thumb, w: th.w, h: th.h, dur};
+          const data = {conv: t.phone, from: 'press', to: t.phone, kind, text, name, mime, size, ts, rid: fk, thumb: th.thumb, w: th.w, h: th.h, dur, relay, chunks};
           batch.set(fs.collection('msgr_queue').doc(id), data);
           locals.push({...data, id, status: 'sent', mine: true, fileKey: fk});
         }
