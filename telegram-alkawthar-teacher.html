@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-teacher.json?v=1.9">
+<link rel="manifest" href="manifest-teacher.json?v=2.0">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -153,7 +153,51 @@ a.btn{display:flex;align-items:center;justify-content:center;gap:9px;text-decora
 .viewer .vt{display:flex;align-items:center;gap:6px;padding:6px;padding-top:max(6px,env(safe-area-inset-top));color:#fff}
 .viewer .vb{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .viewer img{max-width:100%;max-height:100%;object-fit:contain}
-.toast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:rgba(40,44,48,.93);color:#fff;padding:11px 18px;border-radius:9px;font-size:14.5px;z-index:99;max-width:90%;text-align:center;line-height:1.6}
+.toast{pointer-events:none;position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:rgba(40,44,48,.93);color:#fff;padding:11px 18px;border-radius:9px;font-size:14.5px;z-index:99;max-width:90%;text-align:center;line-height:1.6}
+
+/* replies & reactions */
+.b{touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.b.flash{animation:flash 1.4s ease-out}
+@keyframes flash{0%,50%{box-shadow:0 0 0 3px rgba(58,143,217,.6),0 0 0 9999px rgba(58,143,217,.08) inset}100%{box-shadow:0 1px .6px rgba(0,0,0,.14)}}
+.rq{display:flex;gap:7px;align-items:center;margin:6px 7px 0;padding:4px 8px;border-right:3px solid var(--acc);background:rgba(58,143,217,.09);border-radius:6px;cursor:pointer;min-width:120px;max-width:100%;overflow:hidden}
+.b.mine .rq{border-color:#4caf50;background:rgba(76,175,80,.12)}
+.rq .rqt{min-width:0;flex:1}
+.rq b{color:var(--acc);font-size:13.5px;font-weight:600;display:block;line-height:1.35}
+.b.mine .rq b{color:#3c9a3a}
+.rq span{font-size:13.5px;color:#556;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;line-height:1.35}
+.rq img{width:34px;height:34px;border-radius:4px;object-fit:cover;flex-shrink:0}
+.rx{display:flex;flex-wrap:wrap;gap:4px;padding:2px 8px 6px 78px}
+.rxc{display:inline-flex;align-items:center;gap:3px;background:rgba(58,143,217,.12);border:1.5px solid transparent;border-radius:14px;padding:0 7px;font-size:15px;line-height:1.55;color:var(--acc);cursor:pointer}
+.b.mine .rxc{background:rgba(76,175,80,.15);color:#3c9a3a}
+.rxc.me{border-color:currentColor;background:rgba(58,143,217,.2)}
+.b.mine .rxc.me{background:rgba(76,175,80,.26)}
+.rxc small{font-size:12px;font-weight:700}
+.rxc.pop{animation:pop .4s}
+@keyframes pop{0%{transform:scale(.3)}65%{transform:scale(1.3)}100%{transform:scale(1)}}
+.swi{position:absolute;top:50%;width:30px;height:30px;margin-top:-15px;border-radius:50%;background:rgba(0,0,0,.25);color:#fff;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none}
+.rmov{position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.2);animation:fadein .15s}
+@keyframes fadein{from{opacity:0}}
+.rpick{position:fixed;display:flex;gap:1px;background:#fff;border-radius:30px;padding:5px 7px;box-shadow:0 5px 20px rgba(0,0,0,.25);animation:rin .2s cubic-bezier(.2,1.4,.5,1)}
+.rpick button{font-size:26px;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:transform .12s;animation:remo .32s both cubic-bezier(.2,1.4,.5,1)}
+.rpick button:active{transform:scale(1.35)}
+.rpick button.on{background:#e3effa}
+@keyframes rin{from{opacity:0;transform:scale(.5)}to{opacity:1;transform:none}}
+@keyframes remo{from{opacity:0;transform:translateY(10px) scale(.4)}to{opacity:1;transform:none}}
+.rmenu{position:fixed;background:#fff;border-radius:14px;box-shadow:0 5px 20px rgba(0,0,0,.25);min-width:215px;padding:5px 0;animation:rin .2s ease-out;overflow:hidden}
+.rmenu button{display:flex;gap:16px;align-items:center;width:100%;padding:11px 18px;font-size:15.5px;text-align:right}
+.rmenu button svg{color:#8e9aa3;flex-shrink:0}
+.rmenu button:active{background:#f1f1f1}
+.rmenu button.red{color:var(--danger)}
+.rmenu button.red svg{color:var(--danger)}
+.hburst{position:fixed;z-index:80;font-size:72px;pointer-events:none;animation:hb .85s ease-out forwards;filter:drop-shadow(0 4px 8px rgba(0,0,0,.25))}
+@keyframes hb{0%{transform:translate(-50%,-50%) scale(.2);opacity:0}22%{transform:translate(-50%,-50%) scale(1.25);opacity:1}55%{transform:translate(-50%,-55%) scale(1)}100%{transform:translate(-50%,-120%) scale(.8);opacity:0}}
+.rbar2{display:flex;align-items:center;gap:10px;padding:7px 10px 5px;background:#fff;border-top:1px solid #e3e3e3;animation:rbin .18s ease-out}
+@keyframes rbin{from{transform:translateY(100%);opacity:0}}
+.rbar2 .rbi{color:var(--acc);flex-shrink:0}
+.rbar2 .rq2{flex:1;min-width:0;border-right:3px solid var(--acc);padding-right:8px}
+.rbar2 b{color:var(--acc);font-size:14px;display:block}
+.rbar2 span{font-size:14px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.rbar2 .ib{width:36px;height:36px;color:#8e9aa3}
 </style>
 </head>
 <body>
@@ -199,7 +243,7 @@ const VAPID_KEY = '';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '1.9';
+const APP_VERSION = '2.0';
 const MAX_FILE = 200 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -238,6 +282,7 @@ const I = {
   copy: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12zm3 4H8a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11z"/></svg>',
   save: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7zM5 18v2h14v-2z"/></svg>',
   key: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12.6 10A6 6 0 1 0 7 18a6 6 0 0 0 5.6-4H17v4h4v-4h2v-4zM7 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>',
+  reply: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>',
   share: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M18 16a3 3 0 0 0-2 .8L8.9 12.7a3 3 0 0 0 0-1.4L16 7.2A3 3 0 1 0 15 5l.1.7L8 9.8a3 3 0 1 0 0 4.4l7.1 4.2-.1.6a3 3 0 1 0 3-3z"/></svg>'
 };
 const tick1 = '<svg width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 5.5l3.3 3.3L13 1.5"/></svg>';
@@ -476,6 +521,7 @@ function startDemoBot(){
       await ch.doc.ref.delete();
       if (d.from !== myId()) return;
       await fs.collection('msgr_receipts').add({to: d.from, ids: [id], ts: Date.now()});
+      if (d.kind === 'text') setTimeout(() => fs.collection('msgr_reacts').add({to: d.from, from: d.to, mid: id, e: '👍', ts: Date.now()}), 900);
       const reply = d.from === 'press' ? (d.kind !== 'text' ? 'وصل، شكراً 🙏' : 'تمام، شكراً ✅') : 'أهلاً أستاذ، وصلت رسالتك وسنرد عليك قريباً 🌹';
       setTimeout(() => fs.collection('msgr_queue').add({conv: d.from === 'press' ? d.to : d.from, from: d.to, to: d.from,
         kind: 'text', text: reply, name: '', mime: '', size: 0, rid: null, ts: Date.now()}), 1400);
@@ -616,7 +662,7 @@ async function start(){
   await loadAvatars();
   await loadTone();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  listenQueue(); listenReceipts(); listenSignals();
+  listenQueue(); listenReceipts(); listenSignals(); listenReacts();
   if (DEMO) startDemoBot();
   if (S.role === 'press'){
     fs.collection('msgr_users').onSnapshot(snap => {
@@ -773,7 +819,7 @@ function openDrawer(){
    المحادثة
    ===================================================================== */
 async function openChat(conv, root){
-  view = 'chat'; openConv = conv;
+  view = 'chat'; openConv = conv; replyTo = null; closeMsgMenu();
   const c = await DB.get('convs', conv) || {id: conv, lastTs: 0, unread: 0};
   if (c.unread){ c.unread = 0; await DB.put('convs', c); }
   if (!root) try { history.pushState({chat: conv}, ''); } catch(e){}
@@ -873,6 +919,21 @@ function fileStateOf(m){
   return m.fileState || 'remote';
 }
 function bubbleInner(m){
+  return rqHtml(m) + bubbleCore(m) + rxHtml(m);
+}
+function whoName(who){ return who === myId() ? 'أنت' : who === 'press' ? APP_NAME : convName(who); }
+function rqHtml(m){
+  const r = m.reply; if (!r) return '';
+  const ic = r.kind === 'image' ? '🖼 ' : r.kind === 'audio' ? '🎤 ' : r.kind === 'video' ? '🎬 ' : r.kind === 'file' ? '📄 ' : '';
+  return `<div class="rq" data-goto="${esc(r.id)}">${r.thumb ? `<img src="${r.thumb}" alt="">` : ''}<div class="rqt"><b>${esc(whoName(r.who))}</b><span>${esc(ic + (r.text || ''))}</span></div></div>`;
+}
+function rxHtml(m){
+  const rx = m.rx || {}, a = rx.mine, b = rx.theirs;
+  if (!a && !b) return '';
+  const chips = a && a === b ? [[a, 2, true]] : [a ? [a, 1, true] : null, b ? [b, 1, false] : null].filter(Boolean);
+  return `<div class="rx">${chips.map(([e, n, me]) => `<span class="rxc ${me ? 'me' : ''}" data-e="${e}">${e}${n > 1 ? `<small>${n}</small>` : ''}</span>`).join('')}</div>`;
+}
+function bubbleCore(m){
   const cap = m.text ? `<div class="t">${esc(m.text)}<span class="sp"></span></div>` : '';
   const fsx = fileStateOf(m);
   if (m.kind === 'text') return `<div class="t">${esc(m.text)}<span class="sp"></span></div>${metaHtml(m)}`;
@@ -915,10 +976,163 @@ function waveBars(id){
 }
 function bindBubble(el){
   const id = el.dataset.id;
-  el.oncontextmenu = e => { e.preventDefault(); msgMenu(id); };
+  el.oncontextmenu = e => { e.preventDefault(); openMsgMenu(id, el); };
   el.querySelectorAll('[data-fk]').forEach(async img => { const u = await getUrl(img.dataset.fk); if (u) img.src = u; });
-  const tap = el.querySelector('.media,.fic');
-  if (tap) tap.onclick = () => onMediaTap(id);
+  if (!el._g){ el._g = 1; attachGestures(el, id); }
+}
+/* ---------- اللمس: ضغطة / ضغطتين / ضغطة طويلة / سحب للرد ---------- */
+function attachGestures(el, id){
+  let sx = null, sy = 0, moved = false, swiping = false, dx = 0, lp = null, lastTap = 0, tapTimer = null, swi = null;
+  el.addEventListener('pointerdown', e => {
+    if (e.button && e.button !== 0) return;
+    sx = e.clientX; sy = e.clientY; moved = false; swiping = false; dx = 0;
+    clearTimeout(lp);
+    lp = setTimeout(() => { lp = null; moved = true; try { navigator.vibrate && navigator.vibrate(12); } catch(x){} openMsgMenu(id, el); }, 450);
+  });
+  el.addEventListener('pointermove', e => {
+    if (sx == null) return;
+    const ddx = e.clientX - sx, ddy = e.clientY - sy;
+    if (!swiping && (Math.abs(ddx) > 9 || Math.abs(ddy) > 9)){
+      clearTimeout(lp); lp = null; moved = true;
+      if (Math.abs(ddx) > Math.abs(ddy) * 1.4){ swiping = true; try { el.setPointerCapture(e.pointerId); } catch(x){} }
+    }
+    if (swiping){
+      dx = Math.max(-85, Math.min(85, ddx));
+      el.style.transform = `translateX(${dx}px)`;
+      if (!swi){ swi = document.createElement('div'); swi.className = 'swi'; swi.innerHTML = I.reply.replace('width="22" height="22"', 'width="18" height="18"'); el.appendChild(swi); }
+      swi.style.left = dx > 0 ? '-38px' : ''; swi.style.right = dx < 0 ? '-38px' : '';
+      swi.style.opacity = Math.min(1, Math.abs(dx) / 60);
+      if (Math.abs(dx) > 60 && !el._vib){ el._vib = 1; try { navigator.vibrate && navigator.vibrate(10); } catch(x){} }
+    }
+  });
+  const endSwipe = () => {
+    el.style.transition = 'transform .22s cubic-bezier(.2,1.3,.5,1)'; el.style.transform = '';
+    setTimeout(() => { el.style.transition = ''; if (swi){ swi.remove(); swi = null; } }, 240);
+    el._vib = 0;
+  };
+  el.addEventListener('pointerup', e => {
+    clearTimeout(lp); lp = null;
+    if (sx == null) return; sx = null;
+    if (swiping){ const go = Math.abs(dx) > 60; endSwipe(); if (go) startReply(id); return; }
+    if (moved) return;
+    if (e.target.closest('.rq,.rxc')) return;
+    const now = Date.now(), x = e.clientX, y = e.clientY, target = e.target;
+    if (now - lastTap < 300){ clearTimeout(tapTimer); lastTap = 0; doubleTap(id, x, y); return; }
+    lastTap = now;
+    tapTimer = setTimeout(() => singleTap(id, el, target), 270);
+  });
+  el.addEventListener('pointercancel', () => { clearTimeout(lp); lp = null; sx = null; if (swiping) endSwipe(); });
+  el.addEventListener('click', e => {
+    const rq = e.target.closest('.rq'); if (rq){ e.stopPropagation(); jumpTo(rq.dataset.goto); return; }
+    const c = e.target.closest('.rxc'); if (c){ e.stopPropagation(); setReaction(id, c.dataset.e); }
+  });
+}
+async function singleTap(id, el, target){
+  const m = await DB.get('msgs', id); if (!m) return;
+  if (m.kind !== 'text' && target.closest('.media,.fic,.vb,.fb')) return onMediaTap(id);
+  openMsgMenu(id, el);
+}
+async function doubleTap(id, x, y){
+  const m = await DB.get('msgs', id); if (!m) return;
+  const on = (m.rx && m.rx.mine) !== '❤️';
+  await setReaction(id, '❤️');
+  if (on){
+    const h = document.createElement('div'); h.className = 'hburst'; h.textContent = '❤️';
+    h.style.left = x + 'px'; h.style.top = y + 'px';
+    document.body.appendChild(h); setTimeout(() => h.remove(), 900);
+  }
+}
+async function setReaction(id, e){
+  const m = await DB.get('msgs', id); if (!m) return;
+  const next = (m.rx && m.rx.mine) === e ? null : e;
+  m.rx = {...(m.rx || {}), mine: next};
+  await DB.put('msgs', m);
+  await refreshMsg(id);
+  if (next){ const el = document.querySelector(`.b[data-id="${CSS.escape(id)}"] .rxc.me`); if (el) el.classList.add('pop'); }
+  try { navigator.vibrate && navigator.vibrate(10); } catch(x){}
+  const peer = m.mine ? m.to : m.from;
+  fs.collection('msgr_reacts').add({to: peer, from: myId(), mid: id, e: next, ts: Date.now()}).catch(() => {});
+}
+function listenReacts(){
+  fs.collection('msgr_reacts').where('to', '==', myId()).onSnapshot(snap => snap.docChanges().forEach(async ch => {
+    if (ch.type !== 'added') return;
+    const d = ch.doc.data();
+    ch.doc.ref.delete().catch(() => {});
+    const m = await DB.get('msgs', d.mid); if (!m) return;
+    m.rx = {...(m.rx || {}), theirs: d.e || null};
+    await DB.put('msgs', m);
+    await refreshMsg(m.id);
+    if (d.e){
+      const el = document.querySelector(`.b[data-id="${CSS.escape(m.id)}"] .rxc:not(.me)`); if (el) el.classList.add('pop');
+      if (document.hidden) showNotif(convName(m.conv), `تفاعل ${d.e} على رسالتك: ${previewText(m).slice(0, 60)}`, 'rx_' + m.id);
+    }
+  }), e => console.error(e));
+}
+function jumpTo(id){
+  const el = document.querySelector(`.b[data-id="${CSS.escape(id)}"]`);
+  if (!el) return toast('الرسالة الأصلية غير موجودة في جهازك');
+  el.scrollIntoView({behavior: 'smooth', block: 'center'});
+  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 1500);
+}
+/* ---------- الرد على رسالة ---------- */
+let replyTo = null;
+async function startReply(id){
+  const m = await DB.get('msgs', id); if (!m) return;
+  replyTo = {id: m.id, who: m.from, kind: m.kind, text: (m.kind === 'text' ? m.text : (m.text || previewText(m))).slice(0, 140), thumb: m.kind === 'image' ? (m.thumb || null) : null};
+  showReplyBar();
+  const ta = $('#txt'); if (ta) ta.focus();
+}
+function showReplyBar(){
+  let bar = $('#rbar');
+  if (!replyTo){ if (bar) bar.remove(); return; }
+  if (!bar){ bar = document.createElement('div'); bar.id = 'rbar'; bar.className = 'rbar2'; const comp = $('#comp'); if (!comp) return; comp.before(bar); }
+  bar.innerHTML = `<span class="rbi">${I.reply}</span><div class="rq2"><b>رد على ${esc(whoName(replyTo.who))}</b><span>${esc(replyTo.text || '')}</span></div><button class="ib" id="rbx">${I.x}</button>`;
+  bar.querySelector('#rbx').onclick = () => { replyTo = null; showReplyBar(); };
+}
+/* ---------- قائمة الرسالة: التفاعلات + الخيارات ---------- */
+const EMOJIS = ['❤️', '👍', '😢', '😂', '😮', '🙏'];
+function closeMsgMenu(){ const o = $('#rmov'); if (o) o.remove(); }
+async function openMsgMenu(id, el){
+  closeMsgMenu();
+  const m = await DB.get('msgs', id); if (!m) return;
+  const cur = m.rx && m.rx.mine;
+  const items = [['reply', I.reply, 'رد']];
+  if (m.text) items.push(['copy', I.copy, 'نسخ النص']);
+  if (m.fileKey){ items.push(['save', I.save, isMobile() ? 'حفظ في الهاتف' : 'حفظ في مكان على الجهاز']); if (canShareFiles()) items.push(['share', I.share, 'مشاركة']); }
+  if (m.mine && m.status === 'failed') items.push(['retry', I.send, 'إعادة الإرسال']);
+  items.push(['del', I.trash, 'حذف من جهازي']);
+  const ov = document.createElement('div'); ov.className = 'rmov'; ov.id = 'rmov';
+  ov.innerHTML = `<div class="rpick">${EMOJIS.map((e, i) => `<button data-e="${e}" class="${e === cur ? 'on' : ''}" style="animation-delay:${i * 30}ms">${e}</button>`).join('')}</div>
+    <div class="rmenu">${items.map(([k, ic, t]) => `<button data-a="${k}" class="${k === 'del' ? 'red' : ''}">${ic}${t}</button>`).join('')}</div>`;
+  document.body.appendChild(ov);
+  const r = el.getBoundingClientRect(), pick = ov.querySelector('.rpick'), menu = ov.querySelector('.rmenu');
+  const W = innerWidth, H = innerHeight, pw = pick.offsetWidth, ph = pick.offsetHeight, mw = menu.offsetWidth, mh = menu.offsetHeight;
+  const total = ph + 8 + mh;
+  let top = (r.top + r.height / 2 > H / 2) ? r.top - 8 - total : r.bottom + 8;
+  top = Math.max(10, Math.min(H - total - 10, top));
+  const cl = (x, w) => Math.max(8, Math.min(W - w - 8, x));
+  const leftSide = m.mine;   // رسائلي على اليسار
+  pick.style.top = top + 'px'; pick.style.left = cl(leftSide ? r.left : r.right - pw, pw) + 'px';
+  menu.style.top = (top + ph + 8) + 'px'; menu.style.left = cl(leftSide ? r.left : r.right - mw, mw) + 'px';
+  ov.onclick = e => { if (e.target === ov) closeMsgMenu(); };
+  ov.querySelectorAll('.rpick button').forEach(b => b.onclick = () => { closeMsgMenu(); setReaction(id, b.dataset.e); });
+  ov.querySelectorAll('.rmenu button').forEach(b => b.onclick = async () => {
+    closeMsgMenu();
+    const a = b.dataset.a;
+    if (a === 'reply') startReply(id);
+    else if (a === 'copy'){ try { await navigator.clipboard.writeText(m.text); toast('تم النسخ'); } catch(e){ toast('تعذر النسخ'); } }
+    else if (a === 'save') (isMobile() ? saveFile : saveFileAs)(m.fileKey, m.name || 'file');
+    else if (a === 'share') shareFile(m.fileKey, m.name || 'file');
+    else if (a === 'retry') flushOutbox();
+    else if (a === 'del'){
+      if (!await askConfirm('حذف هذه الرسالة من جهازك؟', 'حذف')) return;
+      if (playingId === id) stopAudio();
+      await DB.del('msgs', id);
+      if (m.fileKey && !(await DB.all('msgs')).some(x => x.fileKey === m.fileKey)) await DB.del('files', m.fileKey);
+      renderMessages();
+    }
+  });
 }
 async function refreshMsg(id){
   if (view !== 'chat') return;
@@ -1100,7 +1314,9 @@ function mediaDuration(blob){
 }
 async function sendMessage(conv, {text = '', blob = null, name = '', mime = '', dur = 0, kind = null}){
   const id = uid();
-  const msg = {id, conv, from: myId(), to: peerOf(conv), kind: kind || (blob ? kindOf(mime) : 'text'), text, name, mime,
+  const reply = (replyTo && conv === openConv) ? replyTo : null;
+  if (reply){ replyTo = null; showReplyBar(); }
+  const msg = {id, conv, reply, from: myId(), to: peerOf(conv), kind: kind || (blob ? kindOf(mime) : 'text'), text, name, mime,
     size: blob ? blob.size : 0, ts: Date.now(), status: 'pending', mine: true, fileKey: blob ? id : null, rid: blob ? id : null, thumb: null, w: 0, h: 0, dur};
   if (blob){
     try { blob = new Blob([await blob.arrayBuffer()], {type: blob.type || mime}); } catch(e){ toast('تعذر قراءة الملف'); return; }
@@ -1145,7 +1361,7 @@ async function flushOutbox(){
           }
         }
         await fs.collection('msgr_queue').doc(m.id).set({conv: m.conv, from: m.from, to: m.to, kind: m.kind, text: m.text, name: m.name,
-          mime: m.mime, size: m.size, ts: m.ts, rid: m.rid, thumb: m.thumb || null, w: m.w || 0, h: m.h || 0, dur: m.dur || 0, relay, chunks});
+          mime: m.mime, size: m.size, ts: m.ts, rid: m.rid, thumb: m.thumb || null, w: m.w || 0, h: m.h || 0, dur: m.dur || 0, relay, chunks, reply: m.reply || null});
         delete upProg[m.id];
         const cur = await DB.get('msgs', m.id);
         if (cur){ cur.relayed = relay; if (cur.status !== 'delivered') cur.status = 'sent'; await DB.put('msgs', cur); refreshMsg(cur.id); touchConv(cur.conv, cur, false, true); }
@@ -1175,7 +1391,7 @@ async function receive(doc){
       const conv = S.role === 'press' ? d.from : S.phone;
       const msg = {id: doc.id, conv, from: d.from, to: d.to, kind: d.kind || 'text', text: d.text || '', name: d.name || '',
         mime: d.mime || '', size: d.size || 0, ts: d.ts || Date.now(), status: 'recv', mine: false, fileKey: null,
-        rid: d.rid || null, thumb: d.thumb || null, w: d.w || 0, h: d.h || 0, dur: d.dur || 0, fileState: d.rid ? 'remote' : null};
+        rid: d.rid || null, thumb: d.thumb || null, w: d.w || 0, h: d.h || 0, dur: d.dur || 0, fileState: d.rid ? 'remote' : null, reply: d.reply || null};
       await DB.put('msgs', msg);
       await touchConv(conv, msg, true);
       if (view === 'chat' && openConv === conv) await renderMessages();
