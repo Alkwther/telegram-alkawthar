@@ -1180,9 +1180,44 @@ function listenSignals(){
     ch.doc.ref.delete().catch(() => {});
     if (Date.now() - (d.ts || 0) > 90000) return;
     if (d.type === 'offer') serveFile(d).catch(e => console.error(e));
+    else if (d.type === 'pull') servePull(d).catch(e => console.error(e));
+    else if (d.type === 'relayed') sessions[d.sid]?.relayed(d.rr, d.chunks, d.mime);
     else if (d.type === 'answer') sessions[d.sid]?.answer(d.sdp);
     else if (d.type === 'error') sessions[d.sid]?.fail(d.code);
   }), e => console.error(e));
+}
+// الملفات الصغيرة: نطلب من جهاز المرسل رفعها مؤقتاً بدل الاتصال المباشر (يعمل على كل الشبكات)
+async function pullRelay(owner, rid, onProg){
+  const sid = uid();
+  const got = await new Promise((res, rej) => {
+    const to = setTimeout(() => { delete sessions[sid]; rej(new Error('timeout')); }, 20000);
+    sessions[sid] = {
+      relayed: (rr, n, mime) => { clearTimeout(to); delete sessions[sid]; res({rr, n, mime}); },
+      fail: code => { clearTimeout(to); delete sessions[sid]; rej(new Error(code)); },
+      answer: () => {}
+    };
+    fs.collection('msgr_signal').add({to: owner, from: myId(), sid, type: 'pull', rid, ts: Date.now()})
+      .catch(e => { clearTimeout(to); delete sessions[sid]; rej(e); });
+  });
+  const parts = [];
+  for (let i = 0; i < got.n; i++){
+    const c = await fs.collection('msgr_chunks').doc(got.rr + '_' + i).get();
+    if (!c.exists) throw new Error('missing');
+    parts.push(b64ToBytes(c.data().d));
+    onProg && onProg((i + 1) / got.n);
+  }
+  releaseBlob(got.rr).catch(() => {});
+  return new Blob(parts, {type: got.mime || ''});
+}
+async function servePull(d){
+  const blob = d.rid ? await DB.get('files', d.rid) : null;
+  if (!(blob instanceof Blob)){
+    await fs.collection('msgr_signal').add({to: d.from, from: myId(), sid: d.sid, type: 'error', code: 'gone', ts: Date.now()});
+    return;
+  }
+  const rr = d.rid + '_p' + String(d.sid).slice(-8);
+  const n = await uploadBlob(rr, blob, 1);
+  await fs.collection('msgr_signal').add({to: d.from, from: myId(), sid: d.sid, type: 'relayed', rr, chunks: n, mime: blob.type || '', ts: Date.now()});
 }
 // الطرف الذي يطلب الملف
 async function requestFile(owner, rid, onProg){
@@ -1261,7 +1296,7 @@ async function downloadMsg(id, silent){
   dlProg[id] = 0; refreshMsg(id);
   try {
     const onP = p => { dlProg[id] = p; refreshMsg(id); };
-    const blob = DEMO ? await demoFetch(m, onP) : await requestFile(m.from, m.rid, onP);
+    const blob = DEMO ? await demoFetch(m, onP) : (m.size <= RELAY_MAX ? await pullRelay(m.from, m.rid, onP) : await requestFile(m.from, m.rid, onP));
     const cur = await DB.get('msgs', id); if (!cur) return;
     await DB.put('files', blob, id);
     cur.fileKey = id; cur.fileState = 'done';
@@ -1313,7 +1348,7 @@ async function syncAvatar(peer, v){
   if (!isOnline(peerSeen(peer))) return;
   avBusy[peer] = true;
   try {
-    const blob = DEMO ? demoFiles['av_' + peer] : await requestFile(peer, 'avatar', null);
+    const blob = DEMO ? demoFiles['av_' + peer] : await pullRelay(peer, 'avatar', null);
     if (!blob) return;
     await DB.put('files', {v, blob}, 'av_' + peer);
     if (avatarUrls[peer]) URL.revokeObjectURL(avatarUrls[peer]);
