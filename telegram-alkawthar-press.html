@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-press.json">
+<link rel="manifest" href="manifest-press.json?v=1.9">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -199,7 +199,7 @@ const VAPID_KEY = '';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'press';   // هذا الملف خاص بـالمطبعة
-const APP_VERSION = '1.8';
+const APP_VERSION = '1.9';
 const MAX_FILE = 200 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -647,6 +647,9 @@ async function start(){
   setupNotifications();
   setTimeout(pushLate, 4000);
   setTimeout(checkShared, 1500);
+  setTimeout(checkUpdate, 3000);
+  setInterval(checkUpdate, 10 * 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
   setInterval(() => { beat(); flushOutbox(); }, 120000);
   setInterval(() => { if (view === 'chat') updateChatHeader(); }, 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden){ beat(); flushOutbox(); } });
@@ -1854,6 +1857,30 @@ async function sendShared(conv, files, text){
   if (text) await sendMessage(conv, {text});
 }
 
+/* ---------- التحديث التلقائي ---------- */
+let updateShown = false;
+async function checkUpdate(manual){
+  if (DEMO || !navigator.onLine) return null;
+  try {
+    const r = await fetch(location.pathname + '?vc=' + Date.now(), {cache: 'no-store'});
+    const t = await r.text();
+    const m = t.match(/const APP_VERSION = '([\d.]+)'/);
+    if (!m) return null;
+    const v = m[1];
+    if (v !== APP_VERSION && (manual || !updateShown)){
+      updateShown = true;
+      if (swReg) swReg.update().catch(() => {});
+      const ex = $('#ubar'); if (ex) ex.remove();
+      const d = document.createElement('div'); d.id = 'ubar';
+      d.style.cssText = 'position:fixed;top:max(10px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:70;background:#2e7d32;color:#fff;padding:11px 16px;border-radius:12px;font-size:15px;box-shadow:0 3px 10px rgba(0,0,0,.3);display:flex;gap:12px;align-items:center;max-width:92%';
+      d.innerHTML = `<span>🔄 يوجد تحديث جديد (نسخة ${esc(v)})</span><button style="background:#fff;color:#2e7d32;padding:6px 14px;border-radius:16px;font-weight:600">تحديث الآن</button>`;
+      d.querySelector('button').onclick = () => location.replace(location.pathname + '?u=' + Date.now());
+      document.body.appendChild(d);
+    }
+    return v;
+  } catch(e){ return null; }
+}
+
 /* ---------- التسجيل الصوتي ---------- */
 let rec = null, recChunks = [], recTimer = null, recStart = 0, recCancel = false;
 async function startRecording(){
@@ -2062,6 +2089,8 @@ function showSettings(){
     <div class="fld"><label>اسم المستخدم</label><input id="tn" dir="ltr" value="${esc(t.username || '')}"></div>
     <div class="fld"><label>كلمة المرور</label><input id="tp" dir="ltr" value="${esc(t.credential || '')}"></div>
     <button class="btn" id="ts">حفظ</button>`);
+  ov.querySelector('.sheet h3').insertAdjacentHTML('afterend', `<button class="btn sec" id="stU" style="margin:0 0 12px">🔄 التحقق من وجود تحديث</button>`);
+  ov.querySelector('#stU').onclick = async () => { ov.remove(); const v = await checkUpdate(true); if (v === APP_VERSION) toast('لديك أحدث نسخة ✅ (' + APP_VERSION + ')'); else if (!v) toast('تعذر التحقق — تأكد من الإنترنت'); };
   ov.querySelector('.sheet h3').insertAdjacentHTML('afterend', `
     <div class="kv" style="align-items:center"><span>🔔 الإشعارات</span><b id="stN" style="color:var(--acc);cursor:pointer">${'Notification' in window ? (Notification.permission === 'granted' ? '✅ مفعّلة' : Notification.permission === 'denied' ? '🚫 مرفوضة' : 'تفعيل') : 'غير مدعومة'}</b></div>
     <div class="kv" style="align-items:center"><span>🔊 صوت الرسائل</span><b id="stS" style="color:var(--acc);cursor:pointer">${soundOn() ? 'تشغيل ✅' : 'مطفأ'}</b></div>
