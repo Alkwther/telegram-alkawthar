@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-teacher.json?v=3.4">
+<link rel="manifest" href="manifest-teacher.json?v=3.9">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -34,11 +34,18 @@ html,body{position:fixed;inset:0;overscroll-behavior:none}
 .hdr input::placeholder{color:rgba(255,255,255,.65)}
 .av{width:52px;height:52px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:500;font-size:20px;flex-shrink:0;position:relative}
 .av.sm{width:40px;height:40px;font-size:17px}
+.av.lg{width:84px;height:84px;font-size:32px}
+.ph{color:#2481cc;text-decoration:underline;text-underline-offset:3px;cursor:pointer;-webkit-tap-highlight-color:rgba(36,129,204,.15);border-radius:4px;unicode-bidi:isolate;direction:ltr;display:inline-block}
 .av.xl{width:110px;height:110px;font-size:40px}
 .av.on::after{content:'';position:absolute;bottom:1px;left:1px;width:13px;height:13px;border-radius:50%;background:#4fce5d;border:2.5px solid #fff}
 /* list */
 .list{flex:1;overflow-y:auto;background:#fff}
-.row{display:flex;align-items:center;gap:12px;padding:8px 12px;position:relative}
+.row{display:flex;align-items:center;gap:12px;padding:8px 12px;position:relative;-webkit-user-select:none;user-select:none}
+.row .chk{width:24px;height:24px;border-radius:50%;border:2px solid #b5c0ca;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;transition:all .15s}
+.row.sel{background:#e3eefa}
+.row.sel .chk{background:var(--acc);border-color:var(--acc)}
+.selbar{display:flex;align-items:center;gap:4px;width:100%}
+.selbar b{flex:1;font-size:19px;font-weight:500}
 .row:active{background:#f1f1f1}
 .row .mid{flex:1;min-width:0;border-bottom:1px solid var(--line);padding:6px 0 12px;align-self:stretch;display:flex;flex-direction:column;justify-content:center}
 .row .l1,.row .l2{display:flex;align-items:center;gap:8px}
@@ -250,7 +257,7 @@ const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '3.4';
+const APP_VERSION = '3.9';
 const MAX_FILE = 95 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -259,6 +266,122 @@ const RELAY_MAX = 100 * 1024 * 1024;   // كل الملفات تُرفع وقت 
 const PULL_MAX = 100 * 1024 * 1024;
 const CHUNK = 600 * 1024;
 const PROVINCES = ['بغداد','البصرة','نينوى','أربيل','النجف','كربلاء','بابل','ذي قار','ميسان','واسط','الديوانية','المثنى','ديالى','الأنبار','صلاح الدين','كركوك','السليمانية','دهوك','حلبجة'];
+// الأقضية والنواحي الرئيسية لكل محافظة (ويمكن اختيار «أخرى» وكتابتها)
+const DISTRICTS = {
+  'بغداد': ['الرصافة','الكرخ','الأعظمية','الكاظمية','مدينة الصدر','المنصور','الكرادة','بغداد الجديدة','الشعلة','الدورة','المحمودية','اليوسفية','اللطيفية','أبو غريب','الطارمية','المدائن','الحسينية','الراشدية','النهروان','التاجي'],
+  'البصرة': ['مركز البصرة','أبو الخصيب','الزبير','القرنة','شط العرب','الفاو','المدينة','الدير','الهارثة','سفوان','أم قصر','النشوة','السيبة','الثغر','الإمام الصادق','عز الدين سليم','كرمة علي'],
+  'نينوى': ['الموصل','تلعفر','سنجار','الحمدانية','تلكيف','الشيخان','البعاج','الحضر','القيارة','حمام العليل','بعشيقة','ربيعة','زمار','الشورة','القحطانية'],
+  'أربيل': ['مركز أربيل','سوران','شقلاوة','كويه','مخمور','خبات','ميركسور','جومان','رواندوز','دشت أربيل','الكوير','عنكاوا'],
+  'النجف': ['مركز النجف','الكوفة','المناذرة','المشخاب','الحيرة','القادسية','العباسية','الحرية','الشبكة','الحيدرية'],
+  'كربلاء': ['مركز كربلاء','الهندية (طويريج)','عين التمر','الحر','الحسينية','الجدول الغربي','الخيرات'],
+  'بابل': ['الحلة','المحاويل','الهاشمية','المسيب','الإسكندرية','القاسم','المدحتية','الكفل','جرف النصر','الشوملي','أبو غرق','النيل','الإمام','سدة الهندية','الطليعة'],
+  'ذي قار': ['الناصرية','الشطرة','الرفاعي','سوق الشيوخ','الجبايش','قلعة سكر','الغراف','الدواية','الفهود','النصر','الإصلاح','البطحاء','سيد دخيل','الفجر','الكرمة','أور','الطار','العكيكة'],
+  'ميسان': ['العمارة','علي الغربي','الميمونة','قلعة صالح','المجر الكبير','الكحلاء','المشرح','علي الشرقي','العدل','السلام','الخير','كميت'],
+  'واسط': ['الكوت','الصويرة','الحي','النعمانية','العزيزية','بدرة','الموفقية','الأحرار','الزبيدية','جصان','الشيخ سعد','الدبوني','الحفرية','واسط'],
+  'الديوانية': ['مركز الديوانية','عفك','الشامية','الحمزة','الدغارة','السنية','الشافعية','غماس','المهناوية','الشنافية','سومر','نفر','السدير','آل بدير'],
+  'المثنى': ['السماوة','الرميثة','الخضر','السلمان','الوركاء','الهلال','الدراجي','بصية','النجمي','المجد'],
+  'ديالى': ['بعقوبة','المقدادية','الخالص','خانقين','بلدروز','كفري','جلولاء','السعدية','مندلي','بني سعد','هبهب','العظيم','كنعان','قزانية','قرة تبة','أبي صيدا','الوجيهية'],
+  'الأنبار': ['الرمادي','الفلوجة','هيت','حديثة','عنة','راوة','القائم','الرطبة','الكرمة','الخالدية','العامرية','الحبانية','الصقلاوية','البغدادي','كبيسة','الكرابلة'],
+  'صلاح الدين': ['تكريت','سامراء','بيجي','بلد','الدجيل','الدور','الشرقاط','طوزخورماتو','العلم','الضلوعية','الإسحاقي','يثرب','الصينية','آمرلي','سليمان بيك','المعتصم'],
+  'كركوك': ['مركز كركوك','الحويجة','داقوق','الدبس','الرياض','الزاب','العباسي','ليلان','التون كوبري','الملتقى','الرشاد','يايجي'],
+  'السليمانية': ['مركز السليمانية','رانية','قلعة دزة','دوكان','جمجمال','كلار','دربندخان','شهرزور','بنجوين','ماوت','قرداغ','سيد صادق','عربت','بازيان'],
+  'دهوك': ['مركز دهوك','زاخو','العمادية','سميل','عقرة','الشيخان','بردرش','أكري','فايدة','باتيفا'],
+  'حلبجة': ['مركز حلبجة','خورمال','سيروان','بيارة']
+};
+const distOpts = (prov, sel) => (DISTRICTS[prov] || []).map(d => `<option${d === sel ? ' selected' : ''}>${d}</option>`).join('')
+  + `<option value="__other"${sel && !(DISTRICTS[prov] || []).includes(sel) ? ' selected' : ''}>أخرى (اكتبها)</option>`;
+// حقول العنوان (تُستخدم في التسجيل وفي «عنواني»)
+function addrFields(a){
+  a = a || {};
+  const other = a.district && !(DISTRICTS[a.province] || []).includes(a.district) ? a.district : '';
+  return `<div class="fld"><label>المحافظة</label><select id="lprov"><option value="">اختر المحافظة</option>${PROVINCES.map(p => `<option${p === a.province ? ' selected' : ''}>${p}</option>`).join('')}</select></div>
+    <div class="fld" id="ldistW" style="${a.province ? '' : 'display:none'}"><label>القضاء أو الناحية</label><select id="ldist"><option value="">اختر القضاء / الناحية</option>${a.province ? distOpts(a.province, a.district) : ''}</select></div>
+    <div class="fld" id="lotherW" style="${other ? '' : 'display:none'}"><label>اكتب القضاء / الناحية / المنطقة</label><input id="lother" value="${esc(other)}" placeholder="مثال: ناحية النشوة"></div>
+    <div class="fld"><label>أقرب نقطة دالة</label><input id="lmark" value="${esc(a.landmark || '')}" placeholder="مثال: قرب جامع الرحمن، مقابل مدرسة النور"></div>`;
+}
+function bindAddr(root){
+  const pv = root.querySelector('#lprov'), ds = root.querySelector('#ldist');
+  pv.onchange = () => { root.querySelector('#ldistW').style.display = pv.value ? '' : 'none'; ds.innerHTML = '<option value="">اختر القضاء / الناحية</option>' + (pv.value ? distOpts(pv.value) : ''); root.querySelector('#lotherW').style.display = 'none'; };
+  ds.onchange = () => { root.querySelector('#lotherW').style.display = ds.value === '__other' ? '' : 'none'; if (ds.value === '__other') root.querySelector('#lother').focus(); };
+}
+function readAddr(root){
+  const province = root.querySelector('#lprov').value, dv = root.querySelector('#ldist').value;
+  const district = dv === '__other' ? root.querySelector('#lother').value.trim() : dv;
+  const landmark = root.querySelector('#lmark').value.trim();
+  if (!province) throw 'اختر المحافظة';
+  if (!district) throw 'اختر القضاء أو الناحية';
+  if (landmark.length < 3) throw 'اكتب أقرب نقطة دالة';
+  return {province, district, landmark};
+}
+const fullAddr = u => [u.province, u.district, u.landmark ? (/^(قرب|مقابل|خلف|جنب|بجانب|أمام|امام|داخل|في|على|عند|بالقرب)/.test(u.landmark.trim()) ? u.landmark.trim() : 'قرب ' + u.landmark.trim()) : ''].filter(Boolean).join(' — ');
+// المدرس: إكمال العنوان أو تعديله
+async function askAddress(force){
+  if (DEMO && !force) return;
+  let u = {};
+  try { const s = await fs.collection('msgr_users').doc(S.phone).get(); u = s.exists ? s.data() : {}; } catch(e){ if (!force) return; }
+  if (!force && u.district && u.landmark) return;
+  const ov = sheet(`<h3>📍 ${force ? 'عنواني' : 'أكمل عنوانك'}</h3>
+    ${force ? '' : `<p style="color:var(--mut);margin:-4px 0 12px;font-size:14px;line-height:1.7">حتى تصلك الطلبات من ${APP_NAME} بدون أخطاء، اكتب عنوانك بالضبط.</p>`}
+    ${addrFields({province: u.province || S.province, district: u.district, landmark: u.landmark})}
+    <div class="err" id="aerr"></div>
+    <button class="btn" id="asv">حفظ العنوان</button>${force ? '' : '<button class="btn sec" id="alt">لاحقاً</button>'}`);
+  bindAddr(ov);
+  if (ov.querySelector('#alt')) ov.querySelector('#alt').onclick = () => ov.remove();
+  ov.querySelector('#asv').onclick = async () => {
+    try {
+      const a = readAddr(ov);
+      await fs.collection('msgr_users').doc(S.phone).set(a, {merge: true});
+      S.province = a.province; try { localStorage.setItem(LS('session'), JSON.stringify(S)); } catch(e){}
+      ov.remove(); toast('تم حفظ العنوان ✅');
+    } catch(e){ ov.querySelector('#aerr').textContent = typeof e === 'string' ? e : 'تعذر الحفظ — تأكد من الإنترنت'; }
+  };
+}
+// المطبعة: معلومات الأستاذ (الاسم، الرقم، العنوان بالضبط)
+async function showTeacherInfo(phone){
+  let u = directory[phone] || {};
+  try { const s = await fs.collection('msgr_users').doc(phone).get(); if (s.exists) u = {...u, ...s.data()}; } catch(e){}
+  const addr = fullAddr(u);
+  const ov = sheet(`<div style="text-align:center;margin-bottom:10px"><div style="display:inline-block">${avatar(phone, u.name || phone, 'lg')}</div>
+      <h3 style="margin:8px 0 2px">${esc(u.name || phone)}</h3><small style="color:var(--mut)">${esc(lastSeenText(peerSeen(phone)))}</small></div>
+    <div class="kv"><span>📞 الرقم</span><b class="ph" data-ph="${esc(phone)}" dir="ltr">${esc(phone)}</b></div>
+    <div class="kv"><span>🏙 المحافظة</span><b>${esc(u.province || '—')}</b></div>
+    <div class="kv"><span>🗺 القضاء / الناحية</span><b>${esc(u.district || '—')}</b></div>
+    <div class="kv"><span>📍 أقرب نقطة دالة</span><b>${esc(u.landmark || '—')}</b></div>
+    ${u.subject ? `<div class="kv"><span>📘 المادة</span><b>${esc(u.subject)}</b></div>` : ''}
+    ${u.district ? '' : '<div style="font-size:13px;color:var(--mut);margin:6px 0">لم يكمل الأستاذ عنوانه بعد — سيُطلب منه عند فتح البرنامج.</div>'}
+    <button class="btn" id="tiCall" style="margin-top:12px">📞 اتصال</button>
+    <button class="btn sec" id="tiCopy">📋 نسخ الاسم والرقم والعنوان</button>
+    <button class="btn sec" id="tiWa">💬 واتساب</button>`);
+  ov.querySelector('.ph').onclick = () => phoneSheet(phone);
+  ov.querySelector('#tiCall').onclick = () => { location.href = 'tel:' + phone; };
+  ov.querySelector('#tiWa').onclick = () => window.open('https://wa.me/' + intlPhone(phone), '_blank');
+  ov.querySelector('#tiCopy').onclick = () => copyTxt(`${u.name || ''}\n${phone}\n${addr}`, 'تم نسخ معلومات الأستاذ ✅');
+}
+/* ---------- أرقام الهواتف داخل الرسائل ---------- */
+const AR_D = s => s.replace(/[٠-٩]/g, c => String(c.charCodeAt(0) - 0x660)).replace(/[۰-۹]/g, c => String(c.charCodeAt(0) - 0x6F0));
+const PH_RE = /(\+[0-9٠-٩][0-9٠-٩\s-]{7,16}[0-9٠-٩]|(?<![0-9٠-٩])[0٠]?[7٧][0-9٠-٩]{2}[\s-]?[0-9٠-٩]{3}[\s-]?[0-9٠-٩]{4}(?![0-9٠-٩]))/g;
+function linkText(t){
+  return esc(t || '').replace(PH_RE, m => `<span class="ph" data-ph="${AR_D(m).replace(/[^\d+]/g, '')}">${m}</span>`);
+}
+const intlPhone = n => { n = AR_D(String(n)).replace(/[^\d+]/g, ''); if (n.startsWith('+')) return n.slice(1); if (n.startsWith('00')) return n.slice(2); if (n.startsWith('0')) return '964' + n.slice(1); if (/^7\d{9}$/.test(n)) return '964' + n; return n; };
+async function copyTxt(t, msg){
+  try { await navigator.clipboard.writeText(t); }
+  catch(e){ const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); } catch(x){} a.remove(); }
+  toast(msg || 'تم النسخ ✅');
+}
+function phoneSheet(num){
+  const ov = sheet(`<h3 dir="ltr" style="text-align:center">${esc(num)}</h3>
+    <button class="opt" data-a="call">📞 اتصال بالرقم</button>
+    <button class="opt" data-a="copy">📋 نسخ الرقم</button>
+    <button class="opt" data-a="wa">💬 فتح في واتساب</button>`);
+  ov.querySelectorAll('.opt').forEach(b => b.onclick = () => {
+    ov.remove();
+    if (b.dataset.a === 'call') location.href = 'tel:' + num;
+    else if (b.dataset.a === 'copy') copyTxt(num, 'تم نسخ الرقم ✅');
+    else window.open('https://wa.me/' + intlPhone(num), '_blank');
+  });
+}
+
 const AV_COLORS = ['#e17076','#7bc862','#e5ca77','#65aadd','#a695e7','#ee7aae','#6ec9cb','#faa774'];
 
 /* ---------- أيقونات ---------- */
@@ -384,7 +507,7 @@ const LS = k => 'ktg_' + APP_ROLE + '_' + k;
 let S = JSON.parse(localStorage.getItem(LS('session')) || 'null');
 if (S && S.role !== APP_ROLE) S = null;
 let fs, auth;
-let view = 'login', openConv = null, listMode = 'chats', searchQ = '', provFilter = '', searching = false;
+let view = 'login', openConv = null, listMode = 'chats', searchQ = '', provFilter = '', searching = false, sel = null;
 let directory = {}, pressInfo = {}, pins = {};
 const urlCache = {}, upProg = {}, dlProg = {}, avatarUrls = {}, avVer = {}, avBusy = {};
 const myId = () => S.role === 'press' ? 'press' : S.phone;
@@ -598,7 +721,7 @@ function showLogin(){
       <button class="btn sec" id="lforgot" style="background:transparent;color:var(--acc)">نسيت الرقم السري؟</button>`;
   } else {
     form = `<div class="fld"><label>الاسم الكامل</label><input id="lname" placeholder="مثال: أ. علي حسين"></div>
-      <div class="fld"><label>المحافظة</label><select id="lprov"><option value="">اختر المحافظة</option>${PROVINCES.map(p => `<option>${p}</option>`).join('')}</select></div>
+      ${addrFields()}
       <div class="fld"><label>المادة (اختياري)</label><input id="lsub" placeholder="مثال: الرياضيات"></div>
       <div class="fld"><label>اختر رمزاً سرياً (4 أرقام أو أكثر)</label><input id="lpin" type="password" inputmode="numeric" placeholder="••••"></div>
       <button class="btn" id="lgo">إنشاء الحساب</button><button class="btn sec" id="lback">رجوع</button>`;
@@ -612,6 +735,7 @@ function showLogin(){
     ${isStandalone() ? '' : `<button class="btn sec" id="linst" style="margin-top:18px">📲 تنزيل البرنامج على الهاتف</button>`}</div>`;
     if ($('#lback')) $('#lback').onclick = () => { loginStep = 1; showLogin(); };
   if ($('#lforgot')) $('#lforgot').onclick = forgotSheet;
+  if ($('#ldist')) bindAddr(app());
   if ($('#linst')) $('#linst').onclick = installSheet;
   $('#lgo').onclick = doLogin;
   app().querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') doLogin(); });
@@ -648,10 +772,10 @@ async function doLogin(){
         try { sessionStorage.setItem('ktg_offer_hist', '1'); } catch(e){}
         await setSession({role: 'teacher', phone: loginPhone, name: loginExisting.name, province: loginExisting.province, subject: loginExisting.subject || ''});
       } else {
-        const name = $('#lname').value.trim(), province = $('#lprov').value, subject = $('#lsub').value.trim();
+        const name = $('#lname').value.trim(), subject = $('#lsub').value.trim();
         if (name.length < 3) throw 'اكتب الاسم';
-        if (!province) throw 'اختر المحافظة';
-        await fs.collection('msgr_users').doc(loginPhone).set({name, phone: loginPhone, province, subject, pinHash: h, createdAt: Date.now(), lastSeen: Date.now()});
+        const {province, district, landmark} = readAddr(app());
+        await fs.collection('msgr_users').doc(loginPhone).set({name, phone: loginPhone, province, district, landmark, subject, pinHash: h, createdAt: Date.now(), lastSeen: Date.now()});
         await fs.collection('msgr_pins').doc(loginPhone).set({pin, name, ts: Date.now()});
         await setSession({role: 'teacher', phone: loginPhone, name, province, subject});
       }
@@ -683,7 +807,7 @@ async function start(){
   if (S.role === 'press'){
     fs.collection('msgr_users').onSnapshot(snap => {
       const before = directory; directory = {};
-      snap.forEach(d => { const x = d.data(); directory[d.id] = {phone: d.id, name: x.name, province: x.province, subject: x.subject, lastSeen: x.lastSeen, avatarV: x.avatarV || 0, devs: x.devs || {}}; });
+      snap.forEach(d => { const x = d.data(); directory[d.id] = {phone: d.id, name: x.name, province: x.province, subject: x.subject, district: x.district || '', landmark: x.landmark || '', lastSeen: x.lastSeen, avatarV: x.avatarV || 0, devs: x.devs || {}}; });
       for (const p in directory) syncAvatar(p, directory[p].avatarV);
       for (const p in directory) if (isOnline(directory[p].lastSeen)) retryWaiting(p);
       if (view === 'list') renderList();
@@ -705,6 +829,7 @@ async function start(){
     if (!await DB.get('convs', S.phone)) await DB.put('convs', {id: S.phone, unread: 0, lastTs: 0, lastText: ''});
     openChat(S.phone, true);
     if (!DEMO) setTimeout(maybeOfferHistory, 1200);
+    setTimeout(() => askAddress(false), 2500);
   }
   beat(); flushOutbox();
   setupNotifications();
@@ -718,7 +843,7 @@ async function start(){
   setInterval(() => { if (view === 'chat') updateChatHeader(); }, 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden){ beat(); flushOutbox(); } });
   window.addEventListener('online', () => { beat(); flushOutbox(); });
-  window.addEventListener('popstate', () => { if (S.role === 'press' && (view === 'chat' || view === 'pins')) showList(); });
+  window.addEventListener('popstate', () => { if (sel && view === 'list') return exitSelect(true); if (S.role === 'press' && (view === 'chat' || view === 'pins')) showList(); });
 }
 /* ---------- أجهزة الحساب الواحد (هاتف + لابتوب) ---------- */
 let ownDevs = {}, devRegAt = 0;
@@ -763,7 +888,7 @@ function beat(){
 function showList(mode){
   view = 'list'; openConv = null; stopAudio();
   if (mode) listMode = mode;
-  searching = false; searchQ = '';
+  searching = false; searchQ = ''; sel = null;
   drawListShell();
 }
 function drawListShell(){
@@ -780,6 +905,10 @@ function drawListShell(){
 }
 function headerInner(){
   const contacts = listMode === 'contacts';
+  if (sel) return `<div class="selbar"><button class="ib" id="sx">${I.x}</button><b>${sel.size} محدد</b>
+    <button class="ib" id="sall" title="تحديد الكل" style="font-size:20px">☑️</button>
+    <button class="ib" id="scp" title="نسخ">${I.copy}</button>
+    ${contacts ? '' : `<button class="ib" id="sdel" title="مسح">${I.trash}</button>`}</div>`;
   if (searching) return `<button class="ib" id="hb">${I.back}</button><input id="q" placeholder="بحث..." value="${esc(searchQ)}">`;
   return `${contacts ? `<button class="ib" id="hb">${I.back}</button>` : `<button class="ib" id="hm">${I.menu}</button>`}
     <div class="ttl"><b>${contacts ? 'المدرسون' : APP_NAME}</b>${contacts ? `<small>${Object.keys(directory).length} مدرس</small>` : ''}</div>
@@ -788,6 +917,10 @@ function headerInner(){
 }
 function bindHeader(){
   const h = $('#lh');
+  if ($('#sx')) $('#sx').onclick = exitSelect;
+  if ($('#sall')) $('#sall').onclick = () => { app().querySelectorAll('#list .row').forEach(r => sel.add(r.dataset.c)); refreshSel(); };
+  if ($('#scp')) $('#scp').onclick = copySelected;
+  if ($('#sdel')) $('#sdel').onclick = deleteSelected;
   if ($('#hm')) $('#hm').onclick = openDrawer;
   if ($('#hsh')) $('#hsh').onclick = shareApp;
   if ($('#hs')) $('#hs').onclick = () => { searching = true; h.innerHTML = headerInner(); bindHeader(); $('#q').focus(); };
@@ -807,7 +940,7 @@ async function renderList(){
     if (q) convs = convs.filter(c => (convName(c.id) + c.id).toLowerCase().includes(q));
     if (!convs.length){ el.innerHTML = `<div class="empty">${q ? 'لا توجد نتائج' : 'لا توجد محادثات بعد<br>اضغط ✏️ لاختيار مدرس وبدء محادثة'}</div>`; return; }
     el.innerHTML = convs.map(c => { const t = directory[c.id] || {}; return `
-      <div class="row" data-c="${esc(c.id)}">${avatar(c.id, convName(c.id), '', isOnline(t.lastSeen))}
+      <div class="row${sel && sel.has(c.id) ? ' sel' : ''}" data-c="${esc(c.id)}">${sel ? `<span class="chk">${sel.has(c.id) ? '✓' : ''}</span>` : ''}${avatar(c.id, convName(c.id), '', isOnline(t.lastSeen))}
         <div class="mid"><div class="l1"><span class="nm">${esc(convName(c.id))}</span><span class="tm">${c.lastMine ? `<span style="color:var(--green)">${c.lastStatus === 'delivered' ? tick2 : c.lastStatus === 'sent' ? tick1 : ''}</span>` : ''}${shortDate(c.lastTs)}</span></div>
         <div class="l2"><span class="ls">${c.lastMine ? '<span class="y">أنت: </span>' : ''}${esc(c.lastText || '')}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div></div></div>`; }).join('');
   } else {
@@ -817,11 +950,74 @@ async function renderList(){
     ts.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
     if (!ts.length){ el.innerHTML = `<div class="empty">لا يوجد مدرسون${provFilter ? ' في ' + esc(provFilter) : ''}<br><button class="btn wa" style="width:auto;padding:10px 20px" onclick="shareApp()">مشاركة البرنامج مع المدرسين</button></div>`; return; }
     el.innerHTML = `<div class="sect">مرتبون حسب آخر ظهور</div>` + ts.map(t => `
-      <div class="row" data-c="${esc(t.phone)}">${avatar(t.phone, t.name, '', isOnline(t.lastSeen))}
+      <div class="row${sel && sel.has(t.phone) ? ' sel' : ''}" data-c="${esc(t.phone)}">${sel ? `<span class="chk">${sel.has(t.phone) ? '✓' : ''}</span>` : ''}${avatar(t.phone, t.name, '', isOnline(t.lastSeen))}
         <div class="mid"><div class="l1"><span class="nm">${esc(t.name)}</span></div>
         <div class="l2"><span class="ls" style="${isOnline(t.lastSeen) ? 'color:var(--acc)' : ''}">${esc(lastSeenText(t.lastSeen))} • ${esc(t.province)}${t.subject ? ' • ' + esc(t.subject) : ''}</span></div></div></div>`).join('');
   }
-  el.querySelectorAll('.row').forEach(r => r.onclick = () => openChat(r.dataset.c));
+  el.querySelectorAll('.row').forEach(r => {
+    let lp = null, sx = 0, sy = 0, fired = false;
+    const canSel = S.role === 'press';
+    r.addEventListener('pointerdown', e => {
+      fired = false; sx = e.clientX; sy = e.clientY; clearTimeout(lp);
+      if (canSel) lp = setTimeout(() => { fired = true; try { navigator.vibrate && navigator.vibrate(15); } catch(x){} toggleSel(r.dataset.c); }, 450);
+    });
+    r.addEventListener('pointermove', e => { if (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10){ clearTimeout(lp); lp = null; } });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => r.addEventListener(ev, () => { clearTimeout(lp); lp = null; }));
+    r.addEventListener('contextmenu', e => { if (!canSel) return; e.preventDefault(); if (!fired){ fired = true; toggleSel(r.dataset.c); } });
+    r.onclick = () => {
+      if (fired){ fired = false; return; }
+      if (sel) toggleSel(r.dataset.c); else openChat(r.dataset.c);
+    };
+  });
+}
+/* ---------- تحديد المحادثات (نسخ معلومات المدرسين / مسح) ---------- */
+function toggleSel(id){
+  if (!sel){ sel = new Set(); try { history.pushState({sel: 1}, ''); } catch(e){} }
+  if (sel.has(id)) sel.delete(id); else sel.add(id);
+  if (!sel.size) return exitSelect();
+  refreshSel();
+}
+function refreshSel(){
+  const h = $('#lh'); if (h){ h.innerHTML = headerInner(); bindHeader(); }
+  renderList();
+}
+function exitSelect(fromPop){
+  if (!sel) return;
+  sel = null;
+  if (!fromPop && history.state && history.state.sel) try { history.back(); } catch(e){}
+  refreshSel();
+}
+async function copySelected(){
+  const ids = [...sel];
+  const blocks = [];
+  for (const id of ids){
+    let u = directory[id] || {};
+    if (!u.district) try { const s = await fs.collection('msgr_users').doc(id).get(); if (s.exists) u = {...u, ...s.data()}; } catch(e){}
+    blocks.push([u.name || convName(id), fullAddr(u) || u.province || '', id].filter(Boolean).join('\n'));
+  }
+  await copyTxt(blocks.join('\n\n'), ids.length > 1 ? `تم نسخ معلومات ${ids.length} مدرسين ✅` : 'تم نسخ الاسم والعنوان والرقم ✅');
+  exitSelect();
+}
+function deleteSelected(){
+  const ids = [...sel], n = ids.length;
+  const ov = sheet(`<h3>هل تريد المسح؟</h3>
+    <p style="color:var(--mut);margin:-4px 0 14px;line-height:1.7">سيتم مسح ${n === 1 ? 'محادثة ' + esc(convName(ids[0])) : n + ' محادثات'} مع رسائلها وملفاتها من جهازك.</p>
+    <button class="btn" id="dyes" style="background:var(--danger)">نعم، امسح</button>
+    <button class="btn sec" id="dno">لا</button>`);
+  ov.querySelector('#dno').onclick = () => ov.remove();
+  ov.querySelector('#dyes').onclick = async () => {
+    ov.remove();
+    const all = await DB.all('msgs');
+    for (const id of ids){
+      for (const m of all.filter(x => x.conv === id)){
+        await DB.del('msgs', m.id);
+        if (m.fileKey && !all.some(x => x.conv !== id && x.fileKey === m.fileKey)) await DB.del('files', m.fileKey);
+      }
+      await DB.del('convs', id);
+    }
+    toast(n === 1 ? 'تم مسح المحادثة' : `تم مسح ${n} محادثات`);
+    exitSelect();
+  };
 }
 async function updateTitle(){
   const n = (await DB.all('convs')).reduce((a, c) => a + (c.unread || 0), 0);
@@ -885,7 +1081,9 @@ async function openChat(conv, root){
   if ($('#hb')) $('#hb').onclick = () => { if (history.state && history.state.chat) history.back(); else showList(); };
   if ($('#hm')) $('#hm').onclick = openDrawer;
   $('#hd').onclick = chatMenu;
-  $('#cav').onclick = () => { const u = avatarUrls[peerOf(openConv)]; if (u) showPhoto(u, convName(openConv)); };
+  $('#cav').onclick = () => { const u = avatarUrls[peerOf(openConv)]; if (S.role === 'press') showTeacherInfo(openConv); else if (u) showPhoto(u, convName(openConv)); };
+  app().querySelector('.ttl').onclick = () => { if (S.role === 'press') showTeacherInfo(openConv); };
+  if (S.role === 'press') app().querySelector('.ttl').style.cursor = 'pointer';
   $('#fImg').onchange = e => { sendFiles([...e.target.files], true); e.target.value = ''; };
   $('#fCam').onchange = e => { sendFiles([...e.target.files], true); e.target.value = ''; };
   $('#fAny').onchange = e => { sendFiles([...e.target.files], false); e.target.value = ''; };
@@ -983,9 +1181,9 @@ function rxHtml(m){
   return `<div class="rx">${chips.map(([e, n, me]) => `<span class="rxc ${me ? 'me' : ''}" data-e="${e}">${e}${n > 1 ? `<small>${n}</small>` : ''}</span>`).join('')}</div>`;
 }
 function bubbleCore(m){
-  const cap = m.text ? `<div class="t">${esc(m.text)}<span class="sp"></span></div>` : '';
+  const cap = m.text ? `<div class="t">${linkText(m.text)}<span class="sp"></span></div>` : '';
   const fsx = fileStateOf(m);
-  if (m.kind === 'text') return `<div class="t">${esc(m.text)}<span class="sp"></span></div>${metaHtml(m)}`;
+  if (m.kind === 'text') return `<div class="t">${linkText(m.text)}<span class="sp"></span></div>${metaHtml(m)}`;
   if (m.kind === 'image' || m.kind === 'video'){
     let w = m.w || 300, h = m.h || 300;
     const W = Math.min(270, window.innerWidth * .7), r = Math.min(W / w, 340 / h);
@@ -1091,6 +1289,7 @@ function attachGestures(el, id){
     if (swiping){ const go = Math.abs(dx) > 60; endSwipe(); if (go) startReply(id); return; }
     if (moved) return;
     if (e.target.closest('.rq,.rxc')) return;
+    const ph = e.target.closest('.ph'); if (ph){ phoneSheet(ph.dataset.ph); return; }
     const now = Date.now(), x = e.clientX, y = e.clientY, target = e.target;
     if (now - lastTap < 300){ clearTimeout(tapTimer); lastTap = 0; doubleTap(id, x, y); return; }
     lastTap = now;
@@ -1320,14 +1519,14 @@ function paintAudio(){
 
 /* ---------- عرض / حفظ / مشاركة ---------- */
 const isMobile = () => /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-async function saveFile(fk, name){
+async function saveFile(fk, name, quiet){
   const blob = await DB.get('files', fk);
   if (!blob) return toast('الملف غير موجود في الجهاز');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name || 'file';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 15000);
-  if (isMobile()) toast('تم الحفظ في مجلد التنزيلات (Download) ✅');
+  if (isMobile() && !quiet) toast('تم الحفظ في مجلد التنزيلات (Download) ✅');
 }
 // على اللابتوب: نافذة لاختيار مكان الحفظ واسم الملف
 async function saveFileAs(fk, name){
@@ -1371,10 +1570,9 @@ function fileActions(m){
   const icon = isPdf ? '📕' : '📄';
   let opts = '';
   if (mobile){
-    if (share) opts += `<button class="opt" data-a="share">${I.doc}فتح بواسطة تطبيق في الهاتف${isPdf ? ' (قارئ PDF…)' : ''}</button>`;
+    opts += `<button class="opt" data-a="openwith">${I.doc}فتح بواسطة تطبيق في الهاتف${isPdf ? ' (قارئ PDF…)' : ''}</button>`;
     opts += `<button class="opt" data-a="save">${I.save}حفظ في الهاتف</button>`;
-    if (share) opts += `<button class="opt" data-a="share">${I.share}مشاركة (واتساب، تلكرام…)</button>`;
-    else opts += `<button class="opt" data-a="open">${I.doc}فتح</button>`;
+    if (share) opts += `<button class="opt" data-a="share">${I.share}مشاركة إلى تطبيق آخر (واتساب، تلكرام…)</button>`;
   } else {
     opts += `<button class="opt" data-a="native">${I.doc}فتح ببرنامج الجهاز${isPdf ? ' (Adobe / Edge / قارئ PDF)' : ''}</button>`;
     opts += `<button class="opt" data-a="open">${I.doc}فتح في المتصفح</button>`;
@@ -1389,6 +1587,11 @@ function fileActions(m){
     ov.remove();
     const a = b.dataset.a;
     if (a === 'open') openFile(m.fileKey);
+    else if (a === 'openwith'){
+      // الهاتف يعرض «فتح» بعد التنزيل ← تظهر قائمة التطبيقات التي تفتح الملف (قارئ PDF، Word…)
+      saveFile(m.fileKey, m.name, true);
+      toast('اضغط «فتح» في الشريط أسفل الشاشة أو في إشعار التنزيل ⬇️ — ستظهر لك تطبيقات الهاتف لتختار منها', 6500);
+    }
     else if (a === 'native'){ saveFile(m.fileKey, m.name); toast('اضغط على الملف في قائمة التنزيلات ⬇️ (أعلى المتصفح) ليفتح ببرنامج الجهاز', 5000); }
     else if (a === 'save') saveFile(m.fileKey, m.name);
     else if (a === 'saveas') saveFileAs(m.fileKey, m.name);
@@ -1557,9 +1760,15 @@ async function receive(doc){
       await DB.put('msgs', msg);
       await touchConv(conv, msg, true);
       if (view === 'chat' && openConv === conv) await renderMessages();
-      try { navigator.vibrate && navigator.vibrate([90, 50, 90]); } catch(e){}
-      if (!document.hidden) playTone();
-      else showNotif(convName(conv), previewText(msg) || 'رسالة جديدة', 'm_' + doc.id);
+      if (followPhone()){
+        // إشعار الهاتف نفسه: إذا كان الهاتف صامتاً لا يصدر صوتاً، وإذا كان اهتزازاً يهتز فقط
+        const inChat = view === 'chat' && openConv === conv && !document.hidden;
+        if (!inChat && soundOn()) showNotif(convName(conv), previewText(msg) || 'رسالة جديدة', 'm_' + doc.id);
+      } else {
+        try { navigator.vibrate && navigator.vibrate([90, 50, 90]); } catch(e){}
+        if (!document.hidden) playTone();
+        else showNotif(convName(conv), previewText(msg) || 'رسالة جديدة', 'm_' + doc.id);
+      }
       // الصور والملفات لا تُحمّل إلا عند الضغط عليها (حفاظاً على ذاكرة الجهاز) — فقط الرسائل الصوتية تُحمّل تلقائياً
       if (msg.rid && msg.kind === 'audio' && (d.relay || isOnline(peerSeen(msg.from)))) downloadMsg(msg.id, true);
     }
@@ -2041,7 +2250,6 @@ function shareApp(){
   const text = `📩 تلكرام الكوثر\nبرنامج التواصل المباشر مع ${APP_NAME}: أرسل ملزماتك وصورك وملفاتك ورسائلك بسهولة.\nسجّل برقم هاتفك من هذا الرابط:\n${url}`;
   const ov = sheet(`<h3>مشاركة البرنامج</h3>
     <p style="line-height:1.8;color:#555;margin-bottom:10px">أرسل رابط برنامج الأستاذ للمدرسين حتى يسجّلوا ويتواصلوا مع ${APP_NAME}.</p>
-    <div dir="ltr" style="background:#f3f6f8;padding:10px 12px;border-radius:8px;font-size:13px;word-break:break-all;color:#456">${esc(url)}</div>
     <a class="btn wa" href="https://wa.me/?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">${WA_ICON}مشاركة على واتساب</a>
     ${navigator.share ? '<button class="btn" id="shN">مشاركة بتطبيق آخر</button>' : ''}
     <button class="btn sec" id="shC">نسخ الرابط</button>`);
@@ -2054,6 +2262,8 @@ function shareApp(){
    ===================================================================== */
 let swReg = null, audioCtx = null;
 const soundOn = () => localStorage.getItem('ktg_sound') !== '0';
+// الصوت يتبع وضع الهاتف: نستخدم إشعار النظام (يحترم الصامت والاهتزاز) بدل تشغيل نغمة من داخل البرنامج
+const followPhone = () => true;   // دائماً: صامت = بلا صوت، اهتزاز = يهتز فقط
 function unlockAudio(){
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -2136,7 +2346,7 @@ function playTone(){            // صوت وصول رسالة
   synthPlay('recv', id === 'custom' ? 'twonote' : id);
 }
 function playSend(){            // صوت إرسال رسالة
-  if (!soundOn()) return;
+  if (!soundOn() || followPhone()) return;   // لا يمكن معرفة إن كان الهاتف صامتاً، لذا لا صوت إرسال في هذا الوضع
   const id = sndChoice('send');
   if (id === 'custom' && sendUrl) return playFile(sendUrl, 3000);
   synthPlay('send', id === 'custom' ? 'pop' : id);
@@ -2256,7 +2466,8 @@ async function enableNotifications(){
   try { p = await Notification.requestPermission(); } catch(e){}
   refreshNotifBanner();
   if (p !== 'granted') return toast('لم يتم السماح بالإشعارات — فعّلها من إعدادات المتصفح', 3500);
-  toast('تم تفعيل الإشعارات 🔔'); playTone();
+  toast('تم تفعيل الإشعارات 🔔');
+  if (followPhone()) showNotif(APP_NAME, 'هكذا ستصلك الإشعارات 🔔', 'test'); else playTone();
   registerPush();
 }
 async function registerPush(){
@@ -2725,15 +2936,13 @@ function showSettings(){
     <div class="fld"><label>كلمة المرور</label><input id="tp" dir="ltr" value="${esc(t.credential || '')}"></div>
     <button class="btn" id="ts">حفظ</button>`);
   ov.querySelector('.sheet h3').insertAdjacentHTML('afterend', `<button class="btn sec" id="stU" style="margin:0 0 12px">🔄 التحقق من وجود تحديث</button>`);
+  if (S.role === 'teacher'){ ov.querySelector('#stU').insertAdjacentHTML('beforebegin', `<button class="btn" id="stAd" style="margin:0 0 12px">📍 عنواني (القضاء وأقرب نقطة دالة)</button>`); ov.querySelector('#stAd').onclick = () => { ov.remove(); askAddress(true); }; }
   if (S.role === 'press'){ ov.querySelector('#stU').insertAdjacentHTML('afterend', `<button class="btn" id="stCp" style="margin:0 0 12px">📋 نسخ محتوى ملف (لإعداد الإشعارات)</button>`); ov.querySelector('#stCp').onclick = () => { ov.remove(); copyFileTool(); }; }
   ov.querySelector('#stU').onclick = async () => { ov.remove(); const v = await checkUpdate(true); if (v === APP_VERSION) toast('لديك أحدث نسخة ✅ (' + APP_VERSION + ')'); else if (!v) toast('تعذر التحقق — تأكد من الإنترنت'); };
   ov.querySelector('.sheet h3').insertAdjacentHTML('afterend', `
     <div class="kv" style="align-items:center"><span>🔔 الإشعارات</span><b id="stN" style="color:var(--acc);cursor:pointer">${'Notification' in window ? (Notification.permission === 'granted' ? '✅ مفعّلة' : Notification.permission === 'denied' ? '🚫 مرفوضة' : 'تفعيل') : 'غير مدعومة'}</b></div>
-    <div class="kv" style="align-items:center"><span>🔊 صوت الرسائل</span><b id="stS" style="color:var(--acc);cursor:pointer">${soundOn() ? 'تشغيل ✅' : 'مطفأ'}</b></div>
-    <button class="kv" id="stTn" style="align-items:center;width:100%;text-align:right"><span>🎵 نغمة وصول الرسائل</span><b style="color:var(--acc)">${esc(sndName('recv'))} ›</b></button>
-    <button class="kv" id="sdTn" style="align-items:center;width:100%;text-align:right;margin-bottom:14px"><span>📤 صوت إرسال الرسالة</span><b style="color:var(--acc)">${esc(sndName('send'))} ›</b></button>`);
-  ov.querySelector('#stTn').onclick = () => { ov.remove(); soundPicker('recv', showSettings); };
-  ov.querySelector('#sdTn').onclick = () => { ov.remove(); soundPicker('send', showSettings); };
+    <div class="kv" style="align-items:center"><span>🔊 إشعارات الرسائل<br><small style="color:var(--mut)">تتبع وضع الهاتف: صامت أو اهتزاز أو صوت</small></span><b id="stS" style="color:var(--acc);cursor:pointer">${soundOn() ? 'تشغيل ✅' : 'مطفأ'}</b></div>
+    <div style="margin-bottom:14px"></div>`);
   ov.querySelector('#stN').onclick = () => {
     if (!('Notification' in window)) return;
     if (Notification.permission === 'denied') return toast('الإشعارات مرفوضة — فعّلها من إعدادات المتصفح لهذا الموقع', 3500);
@@ -2742,7 +2951,7 @@ function showSettings(){
   ov.querySelector('#stS').onclick = () => {
     localStorage.setItem('ktg_sound', soundOn() ? '0' : '1');
     ov.querySelector('#stS').textContent = soundOn() ? 'تشغيل ✅' : 'مطفأ';
-    if (soundOn()) playTone();
+    if (soundOn() && !followPhone()) playTone();
   };
   ov.querySelector('#ts').onclick = () => {
     const urls = ov.querySelector('#tu').value.trim();
