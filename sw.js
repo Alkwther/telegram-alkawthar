@@ -1,4 +1,4 @@
-/* تلكرام الكوثر — Service Worker v3.1 (لا يخزّن أي ملفات) */
+/* مراسلات الكوثر — Service Worker v4.3 (لا يخزّن أي ملفات) */
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
@@ -12,7 +12,7 @@ self.addEventListener('push', e => {
     const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const mine = list.filter(c => c.url.startsWith(self.registration.scope));
     if (mine.some(c => c.visibilityState === 'visible' && c.focused !== false)) return;
-    return self.registration.showNotification(d.title || 'تلكرام الكوثر', {
+    return self.registration.showNotification(d.title || 'مراسلات الكوثر', {
       body: d.body || 'رسالة جديدة',
       tag: d.tag || undefined,
       renotify: !!d.tag,
@@ -55,7 +55,7 @@ self.addEventListener('fetch', e => {
 self.addEventListener('fetch', e => {
   if (e.request.mode !== 'navigate') return;
   e.respondWith(fetch(e.request.url, {cache: 'no-store', credentials: 'same-origin'}).catch(() => fetch(e.request)).catch(() => new Response(
-    '<!DOCTYPE html><html dir="rtl" lang="ar"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:Tahoma,sans-serif;text-align:center;padding:60px 20px;color:#444"><h2>لا يوجد اتصال بالإنترنت</h2><p>تأكد من الإنترنت ثم أعد فتح تلكرام الكوثر</p><button onclick="location.reload()" style="padding:12px 24px;font-size:16px;border:0;border-radius:9px;background:#3a8fd9;color:#fff">إعادة المحاولة</button></body></html>',
+    '<!DOCTYPE html><html dir="rtl" lang="ar"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:Tahoma,sans-serif;text-align:center;padding:60px 20px;color:#444"><h2>لا يوجد اتصال بالإنترنت</h2><p>تأكد من الإنترنت ثم أعد فتح مراسلات الكوثر</p><button onclick="location.reload()" style="padding:12px 24px;font-size:16px;border:0;border-radius:9px;background:#3a8fd9;color:#fff">إعادة المحاولة</button></body></html>',
     { headers: { 'Content-Type': 'text/html; charset=utf-8' } })));
 });
 

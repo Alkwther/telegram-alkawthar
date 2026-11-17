@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-teacher.json?v=4.2">
+<link rel="manifest" href="manifest-teacher.json?v=4.3">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="تلكرام الكوثر">
+<meta name="apple-mobile-web-app-title" content="مراسلات الكوثر">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<title>تلكرام الكوثر — المدرس</title>
+<title>مراسلات الكوثر — المدرس</title>
 <style>
 :root{--hdr:#517da2;--hdr2:#4a7396;--acc:#3a8fd9;--green:#4fae4e;--bg:#fff;--txt:#222;--mut:#8a959e;--line:#ececec;
 --mine:#effedd;--theirs:#fff;--mtime:#5fa660;--ttime:#a0acb6;--wall:#cfdfc4;--danger:#e0533f}
@@ -231,7 +231,7 @@ a.btn{display:flex;align-items:center;justify-content:center;gap:9px;text-decora
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 <script>
 /* =====================================================================
-   تلكرام الكوثر — نسخة المدرس
+   مراسلات الكوثر — نسخة المدرس
    ▸ الصور والملفات والصوت تبقى في جهاز المُرسِل فقط
    ▸ عند الضغط على «تحميل» تنتقل مباشرة من جهاز إلى جهاز (WebRTC)
    ▸ Firebase ينقل إشعار الرسالة فقط (نص قصير) ويُحذف فور الوصول
@@ -267,7 +267,7 @@ const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '4.2';
+const APP_VERSION = '4.3';
 const MAX_FILE = 95 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -672,7 +672,7 @@ function startDemoBot(){
     }, 1000);
   }));
   if (S.role === 'teacher') DB.byConv(S.phone).then(ms => { if (!ms.length) setTimeout(() => fs.collection('msgr_queue').add({conv: S.phone, from: 'press', to: S.phone,
-    kind: 'text', text: 'أهلاً بك في تلكرام الكوثر 👋 أرسل لنا ملزمتك أو استفسارك هنا.', name: '', mime: '', size: 0, rid: null, ts: Date.now()}), 800); });
+    kind: 'text', text: 'أهلاً بك في مراسلات الكوثر 👋 أرسل لنا ملزمتك أو استفسارك هنا.', name: '', mime: '', size: 0, rid: null, ts: Date.now()}), 800); });
 }
 
 /* =====================================================================
@@ -734,8 +734,8 @@ function showLogin(){
       <button class="btn" id="lgo">إنشاء الحساب</button><button class="btn sec" id="lback">رجوع</button>`;
   }
   app().innerHTML = `<div class="login">
-    <div class="logo"><svg width="48" height="48" viewBox="0 0 24 24" fill="#fff"><path d="M2 21l21-9L2 3v7l15 2-15 2z" transform="scale(-1,1) translate(-24,0)"/></svg></div>
-    <h2>تلكرام الكوثر</h2>
+    <div class="logo"><svg width="58" height="58" viewBox="96 112 320 320"><path fill="#fff" d="M186 120h140c47.5 0 86 38.5 86 86v70c0 47.5-38.5 86-86 86H244l-70 48c-8 5.5-18.5-1.5-16.5-11l9-41.5C128 350 100 318 100 276v-70c0-47.5 38.5-86 86-86z"/><path fill="#2f86d6" d="M256 152c0 0-62 70-62 112a62 62 0 0 0 124 0c0-42-62-112-62-112z"/><path fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" d="M220 290c12 9 24 9 36 0s24-9 36 0"/></svg></div>
+    <h2>مراسلات الكوثر</h2>
     <p class="c">${APP_ROLE === 'press' ? 'نسخة المطبعة — تواصل مع المدرسين في كل العراق' : 'تواصل مباشر مع ' + APP_NAME}<br>ملفاتك تبقى في جهازك وتنتقل مباشرة عند التحميل</p>
     <div class="seg"><button class="act" style="cursor:default">${APP_ROLE === 'press' ? 'دخول المطبعة' : 'دخول المدرس'}</button></div>
     ${form}<div class="err" id="lerr"></div>
@@ -1038,7 +1038,7 @@ function deleteSelected(){
 }
 async function updateTitle(){
   const n = (await DB.all('convs')).reduce((a, c) => a + (c.unread || 0), 0);
-  document.title = (n ? `(${n}) ` : '') + 'تلكرام الكوثر';
+  document.title = (n ? `(${n}) ` : '') + 'مراسلات الكوثر';
 }
 
 /* ---------- القائمة الجانبية ---------- */
@@ -1057,7 +1057,7 @@ function openDrawer(){
       <button class="ditem" data-a="settings">${I.gear}الإعدادات</button>
       <button class="ditem" data-a="out" style="color:var(--danger)">${I.out}تسجيل الخروج</button>
     </div>
-    <div style="padding:14px 22px;color:var(--mut);font-size:12.5px">تلكرام الكوثر</div></div>`;
+    <div style="padding:14px 22px;color:var(--mut);font-size:12.5px">مراسلات الكوثر</div></div>`;
   document.body.appendChild(ov);
   requestAnimationFrame(() => ov.classList.add('show'));
   const close = () => { ov.classList.remove('show'); setTimeout(() => ov.remove(), 220); };
@@ -2304,7 +2304,7 @@ function showPhoto(u, title){
 /* ---------- نسيت الرقم السري / مشاركة البرنامج ---------- */
 const WA_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 0 0 1.8-1.2 2.2 2.2 0 0 0 .1-1.2c0-.2-.2-.2-.5-.4z"/></svg>';
 function forgotSheet(){
-  const msg = `السلام عليكم، أنا ${loginExisting?.name || ''} رقم هاتفي ${loginPhone}، نسيت الرقم السري لبرنامج تلكرام الكوثر.`;
+  const msg = `السلام عليكم، أنا ${loginExisting?.name || ''} رقم هاتفي ${loginPhone}، نسيت الرقم السري لبرنامج مراسلات الكوثر.`;
   const ov = sheet(`<h3>نسيت الرقم السري؟</h3>
     <p style="line-height:1.8;color:#555">راسل ${APP_NAME} على واتساب وسيرسلون لك رقمك السري.</p>
     <div style="text-align:center;font-size:24px;font-weight:600;direction:ltr;margin:16px 0;letter-spacing:1px">${WA_DISPLAY}</div>
@@ -2319,13 +2319,13 @@ function teacherAppUrl(){
 }
 function shareApp(){
   const url = teacherAppUrl();
-  const text = `📩 تلكرام الكوثر\nبرنامج التواصل المباشر مع ${APP_NAME}: أرسل ملزماتك وصورك وملفاتك ورسائلك بسهولة.\nسجّل برقم هاتفك من هذا الرابط:\n${url}`;
+  const text = `📩 مراسلات الكوثر\nبرنامج التواصل المباشر مع ${APP_NAME}: أرسل ملزماتك وصورك وملفاتك ورسائلك بسهولة.\nسجّل برقم هاتفك من هذا الرابط:\n${url}`;
   const ov = sheet(`<h3>مشاركة البرنامج</h3>
     <p style="line-height:1.8;color:#555;margin-bottom:10px">أرسل رابط برنامج الأستاذ للمدرسين حتى يسجّلوا ويتواصلوا مع ${APP_NAME}.</p>
     <a class="btn wa" href="https://wa.me/?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">${WA_ICON}مشاركة على واتساب</a>
     ${navigator.share ? '<button class="btn" id="shN">مشاركة بتطبيق آخر</button>' : ''}
     <button class="btn sec" id="shC">نسخ الرابط</button>`);
-  if (ov.querySelector('#shN')) ov.querySelector('#shN').onclick = async () => { try { await navigator.share({title: 'تلكرام الكوثر', text, url}); ov.remove(); } catch(e){} };
+  if (ov.querySelector('#shN')) ov.querySelector('#shN').onclick = async () => { try { await navigator.share({title: 'مراسلات الكوثر', text, url}); ov.remove(); } catch(e){} };
   ov.querySelector('#shC').onclick = async () => { try { await navigator.clipboard.writeText(text); toast('تم نسخ الرابط والرسالة'); } catch(e){ toast('تعذر النسخ'); } };
 }
 
@@ -2497,7 +2497,7 @@ function installSheet(){
   const old = $('#instOv'); if (old) old.remove();
   const ov = sheet(`<div style="text-align:center">
       <img src="icon-192.png" alt="" style="width:72px;height:72px;border-radius:18px;margin:0 auto 10px;display:block;background:#4a8ad0" onerror="this.style.display='none'">
-      <h3 style="margin-bottom:4px">تنزيل تلكرام الكوثر</h3>
+      <h3 style="margin-bottom:4px">تنزيل مراسلات الكوثر</h3>
       <div style="color:var(--mut);font-size:14px;margin-bottom:12px">يظهر على شاشة هاتفك مثل أي تطبيق، ويفتح بضغطة واحدة</div></div>
     <div id="instBody"></div>
     <button class="btn sec" id="instLater">لاحقاً</button>`);
@@ -2520,7 +2520,7 @@ function fillInstall(){
       step(1, 'افتح الرابط بمتصفح <b>Safari</b>') +
       step(2, `اضغط زر المشاركة ${SHARE_IOS} أسفل الشاشة`) +
       step(3, 'انزل للأسفل واختر <b>«إضافة إلى الشاشة الرئيسية»</b>') +
-      step(4, 'اضغط <b>«إضافة»</b> — تظهر أيقونة تلكرام الكوثر على شاشتك') +
+      step(4, 'اضغط <b>«إضافة»</b> — تظهر أيقونة مراسلات الكوثر على شاشتك') +
       `<div class="note">بعد التنزيل افتح البرنامج من الأيقونة دائماً، حتى تصلك الإشعارات.</div>`;
   } else {
     box.innerHTML = `<div style="font-weight:600;margin-bottom:4px">على الأندرويد:</div>` +
@@ -2528,7 +2528,7 @@ function fillInstall(){
       step(1, 'افتح الرابط بمتصفح <b>Chrome</b>') +
       step(2, 'اضغط <b>⋮</b> أعلى الشاشة') +
       step(3, 'اختر <b>«تثبيت التطبيق»</b> أو <b>«إضافة إلى الشاشة الرئيسية»</b>') +
-      step(4, 'اضغط <b>«تثبيت»</b> — تظهر أيقونة تلكرام الكوثر على شاشتك');
+      step(4, 'اضغط <b>«تثبيت»</b> — تظهر أيقونة مراسلات الكوثر على شاشتك');
   }
 }
 async function enableNotifications(){

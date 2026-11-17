@@ -1,7 +1,7 @@
 {
   "id": "./telegram-alkawthar-teacher.html",
-  "name": "تلكرام الكوثر",
-  "short_name": "تلكرام الكوثر",
+  "name": "مراسلات الكوثر",
+  "short_name": "مراسلات الكوثر",
   "start_url": "./telegram-alkawthar-teacher.html",
   "scope": "./telegram-alkawthar-teacher.html",
   "display": "standalone",
