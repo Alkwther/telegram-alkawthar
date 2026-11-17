@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-press.json?v=3.2">
+<link rel="manifest" href="manifest-press.json?v=3.4">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -250,8 +250,8 @@ const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'press';   // هذا الملف خاص بـالمطبعة
-const APP_VERSION = '3.2';
-const MAX_FILE = 100 * 1024 * 1024;
+const APP_VERSION = '3.4';
+const MAX_FILE = 95 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
 const RELAY_MAX = 100 * 1024 * 1024;   // كل الملفات تُرفع وقت الإرسال — المستلم يحمّلها حتى لو خرج المرسل
@@ -1256,6 +1256,7 @@ async function deleteForAll(m){
   // إذا لم تصل بعد: نلغيها من صندوق الانتظار
   fs.collection('msgr_queue').doc(m.id).delete().catch(() => {});
   // نحذف الملف المرفوع مؤقتاً (إلا إذا كان مشتركاً مع رسائل أخرى مثل الإرسال الجماعي)
+  if (m.rid && !others){ r2Del(m.rid); r2Del(m.id + '_l'); }
   if (m.rid && !others) for (const rid of [m.rid, m.id + '_l']){
     try {
       const ref = fs.collection('msgr_blobs').doc(rid), s = await ref.get();
@@ -1490,18 +1491,18 @@ async function flushOutbox(){
     const out = (await DB.all('msgs')).filter(m => m.mine && (m.status === 'pending' || m.status === 'failed')).sort((a, b) => a.ts - b.ts);
     for (const m of out){
       try {
-        let relay = false, chunks = 0;
+        let relay = false, chunks = 0, r2 = false;
         const need = needFor(m.to);
         if (m.fileKey && m.size <= RELAY_MAX){
           const blob = await DB.get('files', m.fileKey);
           if (blob instanceof Blob){
             upProg[m.id] = 0; refreshMsg(m.id);
-            chunks = await uploadBlob(m.rid, blob, Math.max(1, need.length), p => { upProg[m.id] = p; refreshMsg(m.id); });
+            ({chunks, r2} = await storeUpload(m.rid, blob, 1, p => { upProg[m.id] = p; refreshMsg(m.id); }));
             relay = true;
           }
         }
         await fs.collection('msgr_queue').doc(m.id).set({conv: m.conv, from: m.from, to: m.to, kind: m.kind, text: m.text, name: m.name,
-          mime: m.mime, size: m.size, ts: m.ts, rid: m.rid, thumb: m.thumb || null, w: m.w || 0, h: m.h || 0, dur: m.dur || 0, relay, chunks, reply: m.reply || null,
+          mime: m.mime, size: m.size, ts: m.ts, rid: m.rid, thumb: m.thumb || null, w: m.w || 0, h: m.h || 0, dur: m.dur || 0, relay, chunks, r2, reply: m.reply || null,
           need, got: [], dev: devId()});
         delete upProg[m.id];
         notifyPush([m.id]);
@@ -1535,7 +1536,7 @@ async function receiveOwn(doc){
     const msg = {id: doc.id, conv: d.conv, from: d.from, to: d.to, kind: d.kind || 'text', text: d.text || '', name: d.name || '',
       mime: d.mime || '', size: d.size || 0, ts: d.ts || Date.now(), status: 'sent', mine: true, sync: true, fileKey: null,
       rid: d.rid || null, thumb: d.thumb || null, w: d.w || 0, h: d.h || 0, dur: d.dur || 0, fileState: d.rid ? 'remote' : null,
-      reply: d.reply || null, rr: d.rid && d.relay ? d.rid : null, rc: d.chunks || 0};
+      reply: d.reply || null, rr: d.rid && d.relay ? d.rid : null, rc: d.chunks || 0, r2: !!d.r2};
     await DB.put('msgs', msg);
     await touchConv(msg.conv, msg, false);
     if (view === 'chat' && openConv === msg.conv) await renderMessages();
@@ -1552,7 +1553,7 @@ async function receive(doc){
       const msg = {id: doc.id, conv, from: d.from, to: d.to, kind: d.kind || 'text', text: d.text || '', name: d.name || '',
         mime: d.mime || '', size: d.size || 0, ts: d.ts || Date.now(), status: 'recv', mine: false, fileKey: null,
         rid: d.rid || null, thumb: d.thumb || null, w: d.w || 0, h: d.h || 0, dur: d.dur || 0, fileState: d.rid ? 'remote' : null, reply: d.reply || null,
-        rr: d.rid && d.relay ? d.rid : null, rc: d.chunks || 0};
+        rr: d.rid && d.relay ? d.rid : null, rc: d.chunks || 0, r2: !!d.r2};
       await DB.put('msgs', msg);
       await touchConv(conv, msg, true);
       if (view === 'chat' && openConv === conv) await renderMessages();
@@ -1694,10 +1695,10 @@ async function loadHistory(d){
   toast(added ? 'تم تحميل ' + added + ' رسالة سابقة ✅ — اضغط على أي صورة أو ملف لتحميله' : 'لا توجد محادثات سابقة جديدة', 4000);
 }
 // الملفات الصغيرة: نطلب من جهاز المرسل رفعها مؤقتاً بدل الاتصال المباشر (يعمل على كل الشبكات)
-async function pullRelay(owner, rid, onProg){
+async function pullRelay(owner, rid, onProg, wait = 20000){
   const sid = uid();
   const got = await new Promise((res, rej) => {
-    const to = setTimeout(() => { delete sessions[sid]; rej(new Error('timeout')); }, 20000);
+    const to = setTimeout(() => { delete sessions[sid]; rej(new Error('timeout')); }, wait);
     sessions[sid] = {
       relayed: (rr, n, mime) => { clearTimeout(to); delete sessions[sid]; res({rr, n, mime}); },
       fail: code => { clearTimeout(to); delete sessions[sid]; rej(new Error(code)); },
@@ -1717,8 +1718,15 @@ async function pullRelay(owner, rid, onProg){
 async function iAmOrigin(rid){
   return !!rid && (await DB.all('msgs')).some(x => x.mine && !x.sync && (x.rid === rid || x.fileKey === rid));
 }
+async function findBlob(rid){
+  if (!rid) return null;
+  let b = await DB.get('files', rid);
+  if (b instanceof Blob) return b;
+  const m = (await DB.all('msgs')).find(x => x.fileKey && (x.rid === rid || x.hk === rid));
+  return m ? await DB.get('files', m.fileKey) : null;
+}
 async function servePull(d){
-  const blob = d.rid ? await DB.get('files', d.rid) : null;
+  const blob = await findBlob(d.rid);
   if (!(blob instanceof Blob)){
     if (!await iAmOrigin(d.rid)) return;   // ربما يملكه جهاز آخر لنفس الحساب
     await fs.collection('msgr_signal').add({to: d.from, from: myId(), sid: d.sid, type: 'error', code: 'gone', ts: Date.now()});
@@ -1746,8 +1754,8 @@ async function pushLate(){
       const blob = await DB.get('files', m.fileKey);
       if (blob instanceof Blob){
         const rr = m.id + '_l';
-        const n = await uploadBlob(rr, blob, 1);
-        await fs.collection('msgr_signal').add({to: m.to, from: myId(), type: 'late', rid: m.rid, rr, chunks: n, mime: blob.type || '', ts: Date.now()});
+        const up = await storeUpload(rr, blob, 1);
+        await fs.collection('msgr_signal').add({to: m.to, from: myId(), type: 'late', rid: m.rid, rr, chunks: up.chunks, r2: up.r2, mime: blob.type || '', ts: Date.now()});
       }
       m.relayed = true; await DB.put('msgs', m);
     }
@@ -1759,7 +1767,7 @@ async function handleLate(d){
   if (!ms.length){ releaseBlob(d.rr).catch(() => {}); return; }
   // لا نحمّل الملف الآن — نحفظ مكانه فقط، ويُحمّل عندما يضغط المستخدم عليه
   for (const m of ms){
-    m.rr = d.rr; m.rc = d.chunks; if (!m.mime) m.mime = d.mime || '';
+    m.rr = d.rr; m.rc = d.chunks; m.r2 = !!d.r2; if (!m.mime) m.mime = d.mime || '';
     if (m.fileState === 'waiting' || m.fileState === 'gone') m.fileState = 'remote';
     await DB.put('msgs', m); refreshMsg(m.id);
     if (m.kind === 'audio') downloadMsg(m.id, true);
@@ -1768,9 +1776,9 @@ async function handleLate(d){
 // الملفات المرفوعة مؤقتاً ولم يحمّلها أحد خلال 14 يوماً تُحذف من السيرفر (يبقى تحميلها مباشرة من جهاز المرسل)
 async function purgeOldRelays(){
   if (DEMO || !navigator.onLine) return;
-  // ملفات مؤقتة قديمة على السيرفر (من أي جهاز) تُحذف بعد 14 يوماً
+  // ملفات مؤقتة لم يحمّلها أحد تُحذف من السيرفر بعد 7 أيام
   try {
-    const q = await fs.collection('msgr_blobs').where('ts', '<', Date.now() - 14 * 86400000).limit(40).get();
+    const q = await fs.collection('msgr_blobs').where('ts', '<', Date.now() - 7 * 86400000).limit(40).get();
     for (const doc of q.docs){
       const n = doc.data().chunks || 0;
       for (let i = 0; i < n; i++) await fs.collection('msgr_chunks').doc(doc.id + '_' + i).delete().catch(() => {});
@@ -1837,7 +1845,7 @@ async function requestFile(owner, rid, onProg){
 }
 // الطرف الذي يملك الملف (يُرسل من جهازه مباشرة)
 async function serveFile(d){
-  const blob = d.rid ? await DB.get('files', d.rid) : null;
+  const blob = await findBlob(d.rid);
   if (!(blob instanceof Blob)){
     if (!await iAmOrigin(d.rid)) return;
     await fs.collection('msgr_signal').add({to: d.from, from: myId(), sid: d.sid, type: 'error', code: 'gone', ts: Date.now()});
@@ -1877,7 +1885,7 @@ async function downloadMsg(id, silent){
   // رسائل السجل القديم: الملف موجود في جهاز المطبعة
   // الملف مرفوع مؤقتاً على السيرفر: يُحمّل فوراً حتى لو كان المرسل غير متصل
   if (m.rr && !DEMO){
-    if (await fetchRelay(id, m.rr, m.rc, m.mime)){
+    if (m.r2 ? await fetchR2(id, m.rr, m.mime) : await fetchRelay(id, m.rr, m.rc, m.mime)){
       const cur = await DB.get('msgs', id);
       if (cur && !silent){ if (cur.kind === 'file') fileActions(cur); if (cur.kind === 'audio') toggleAudio(cur); }
       return;
@@ -1891,6 +1899,7 @@ async function downloadMsg(id, silent){
     let blob;
     if (!frid) throw new Error('gone');
     if (DEMO) blob = await demoFetch(m, onP);
+    else if (owner !== myId() && activeDevs(myId()).length > 1 && (blob = await pullRelay(myId(), frid, onP, 8000).catch(() => null))){ /* من جهازي الآخر الذي حمّله */ }
     else if (m.size <= RELAY_MAX) blob = await pullRelay(owner, frid, onP);
     else {
       try { blob = await requestFile(owner, frid, onP); }
@@ -2300,6 +2309,62 @@ async function uploadBlob(rid, blob, pending, onProg){
   }
   await fs.collection('msgr_blobs').doc(rid).set({pending, chunks: n, ts: Date.now()});
   return n;
+}
+/* ---------- تخزين الملفات في Cloudflare R2 (10 گيگا مجاناً، تُحذف تلقائياً بعد 30 يوماً) ---------- */
+const USE_R2 = !DEMO && !!PUSH_URL;
+const r2Url = key => PUSH_URL + '/f/' + encodeURIComponent(key);
+async function r2Token(){ return auth.currentUser ? await auth.currentUser.getIdToken() : ''; }
+async function r2Put(key, blob, onProg){
+  const t = await r2Token();
+  await new Promise((res, rej) => {
+    const x = new XMLHttpRequest();
+    x.open('PUT', r2Url(key));
+    x.setRequestHeader('Authorization', 'Bearer ' + t);
+    x.setRequestHeader('Content-Type', blob.type || 'application/octet-stream');
+    x.upload.onprogress = e => { if (e.lengthComputable && onProg) onProg(e.loaded / e.total); };
+    x.onload = () => x.status === 200 ? res() : rej(new Error('r2 ' + x.status));
+    x.onerror = () => rej(new Error('net'));
+    x.send(blob);
+  });
+}
+async function r2Get(key, mime, onProg){
+  const t = await r2Token();
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest();
+    x.open('GET', r2Url(key)); x.responseType = 'blob';
+    x.setRequestHeader('Authorization', 'Bearer ' + t);
+    x.onprogress = e => { if (e.lengthComputable && onProg) onProg(e.loaded / e.total); };
+    x.onload = () => x.status === 200 ? res(new Blob([x.response], {type: mime || x.response.type || 'application/octet-stream'})) : rej(new Error(x.status === 404 ? 'gone' : 'r2 ' + x.status));
+    x.onerror = () => rej(new Error('net'));
+    x.send();
+  });
+}
+function r2Del(key){
+  if (!USE_R2 || !key) return;
+  r2Token().then(t => fetch(r2Url(key), {method: 'DELETE', headers: {Authorization: 'Bearer ' + t}})).catch(() => {});
+}
+// رفع ملف: إلى R2، وإذا تعذّر (والملف صغير) إلى Firebase كالسابق
+async function storeUpload(key, blob, pending, onProg){
+  if (USE_R2){
+    try { await r2Put(key, blob, onProg); return {chunks: 0, r2: true}; }
+    catch(e){ console.warn('r2', e); if (blob.size > 10 * 1024 * 1024) throw e; }
+  }
+  return {chunks: await uploadBlob(key, blob, pending, onProg), r2: false};
+}
+async function fetchR2(id, key, mime){
+  dlProg[id] = 0; refreshMsg(id);
+  try {
+    const blob = await r2Get(key, mime, p => { dlProg[id] = p; refreshMsg(id); });
+    await DB.put('files', blob, id);
+    const cur = await DB.get('msgs', id);
+    if (cur){ cur.fileKey = id; cur.fileState = 'done'; await DB.put('msgs', cur); }
+    delete dlProg[id]; refreshMsg(id);
+    return true;
+  } catch(e){
+    console.warn('r2 get', e);
+    delete dlProg[id]; refreshMsg(id);
+    return false;
+  }
 }
 async function releaseBlob(rid){
   const ref = fs.collection('msgr_blobs').doc(rid);
@@ -2716,16 +2781,16 @@ function showBroadcast(){
         if (kind === 'image') th = await makeThumb(file);
         if (kind === 'audio') dur = await mediaDuration(file);
       }
-      let relay = false, chunks = 0;
+      let relay = false, chunks = 0, r2 = false;
       const needs = {}; let pend = 0;
       for (const t of tg){ needs[t.phone] = needFor(t.phone); pend += Math.max(1, needs[t.phone].length); }
-      if (file && file.size <= RELAY_MAX){ btn.textContent = 'جارِ رفع المرفق...'; chunks = await uploadBlob(fk, file, pend); relay = true; }
+      if (file && file.size <= RELAY_MAX){ btn.textContent = 'جارِ رفع المرفق...'; ({chunks, r2} = await storeUpload(fk, file, tg.length)); relay = true; }
       const ts = Date.now();
       for (let i = 0; i < tg.length; i += 400){
         const batch = fs.batch(), locals = [];
         for (const t of tg.slice(i, i + 400)){
           const id = uid();
-          const data = {conv: t.phone, from: 'press', to: t.phone, kind, text, name, mime, size, ts, rid: fk, thumb: th.thumb, w: th.w, h: th.h, dur, relay, chunks};
+          const data = {conv: t.phone, from: 'press', to: t.phone, kind, text, name, mime, size, ts, rid: fk, thumb: th.thumb, w: th.w, h: th.h, dur, relay, chunks, r2};
           batch.set(fs.collection('msgr_queue').doc(id), {...data, need: needs[t.phone], got: [], dev: devId()});
           locals.push({...data, id, status: 'sent', mine: true, fileKey: fk});
         }
