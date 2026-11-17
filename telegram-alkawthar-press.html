@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-press.json?v=4.3">
+<link rel="manifest" href="manifest-press.json?v=4.4">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -267,7 +267,7 @@ const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'press';   // هذا الملف خاص بـالمطبعة
-const APP_VERSION = '4.3';
+const APP_VERSION = '4.4';
 const MAX_FILE = 95 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -1832,15 +1832,12 @@ async function receive(doc){
       await DB.put('msgs', msg);
       await touchConv(conv, msg, true);
       if (view === 'chat' && openConv === conv) await renderMessages();
-      if (followPhone()){
-        // إشعار الهاتف نفسه: إذا كان الهاتف صامتاً لا يصدر صوتاً، وإذا كان اهتزازاً يهتز فقط
-        const inChat = view === 'chat' && openConv === conv && !document.hidden;
-        if (!inChat && soundOn()) showNotif(convName(conv), previewText(msg) || 'رسالة جديدة', 'm_' + doc.id);
-      } else {
-        try { navigator.vibrate && navigator.vibrate([90, 50, 90]); } catch(e){}
-        if (!document.hidden) playTone();
-        else showNotif(convName(conv), previewText(msg) || 'رسالة جديدة', 'm_' + doc.id);
-      }
+      // البرنامج مفتوح: نغمتك المختارة — البرنامج مغلق: إشعار الهاتف (يتبع وضع الصامت/الاهتزاز)
+      const inChat = view === 'chat' && openConv === conv && !document.hidden;
+      if (!document.hidden){
+        if (inChat) playInChat();
+        else { try { navigator.vibrate && navigator.vibrate([90, 50, 90]); } catch(e){} playTone(); }
+      } else if (soundOn()) showNotif(convName(conv), previewText(msg) || 'رسالة جديدة', 'm_' + doc.id);
       // الصور والملفات لا تُحمّل إلا عند الضغط عليها (حفاظاً على ذاكرة الجهاز) — فقط الرسائل الصوتية تُحمّل تلقائياً
       if (msg.rid && msg.kind === 'audio' && (d.relay || isOnline(peerSeen(msg.from)))) downloadMsg(msg.id, true);
     }
@@ -2343,8 +2340,20 @@ function unlockAudio(){
   } catch(e){}
 }
 document.addEventListener('pointerdown', unlockAudio, {passive: true});
-/* ---------- مكتبة الأصوات (تُولَّد داخل التطبيق — لا تحتاج ملفات) ---------- */
-function tn(c, out, t0, o){   // نغمة واحدة
+/* ---------- مكتبة الأصوات الاحترافية (تُولَّد داخل التطبيق — لا تحتاج ملفات) ---------- */
+let master = null;
+function getMaster(c){   // سلسلة صوت احترافية: ضاغط + صدى خفيف (غرفة صغيرة)
+  if (master && master.c === c) return master.in;
+  const inp = c.createGain(), comp = c.createDynamicsCompressor(), dry = c.createGain(), wet = c.createGain(), conv = c.createConvolver();
+  comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 3.5; comp.attack.value = .003; comp.release.value = .18;
+  const len = Math.floor(c.sampleRate * .9), ir = c.createBuffer(2, len, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++){ const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2) * .6; }
+  conv.buffer = ir; dry.gain.value = .9; wet.gain.value = .16;
+  inp.connect(dry); inp.connect(conv); conv.connect(wet); dry.connect(comp); wet.connect(comp); comp.connect(c.destination);
+  master = {c, in: inp};
+  return inp;
+}
+function tn(c, out, t0, o){   // نغمة نقية
   const osc = c.createOscillator(), g = c.createGain();
   osc.type = o.type || 'sine';
   osc.frequency.setValueAtTime(o.f, t0);
@@ -2353,6 +2362,14 @@ function tn(c, out, t0, o){   // نغمة واحدة
   g.gain.exponentialRampToValueAtTime(o.v || .3, t0 + (o.a || .006));
   g.gain.exponentialRampToValueAtTime(.0001, t0 + o.d);
   osc.connect(g); g.connect(out); osc.start(t0); osc.stop(t0 + o.d + .03);
+}
+function bl(c, out, t0, o){   // جرس / ماريمبا (FM) — صوت ناعم واحترافي
+  const car = c.createOscillator(), mod = c.createOscillator(), mg = c.createGain(), g = c.createGain();
+  car.frequency.value = o.f; mod.frequency.value = o.f * (o.r || 3.5);
+  mg.gain.setValueAtTime(o.f * (o.i || 1.6), t0); mg.gain.exponentialRampToValueAtTime(o.f * .02 + 1, t0 + o.d * .5);
+  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(o.v || .25, t0 + (o.a || .004)); g.gain.exponentialRampToValueAtTime(.0001, t0 + o.d);
+  mod.connect(mg); mg.connect(car.frequency); car.connect(g); g.connect(out);
+  car.start(t0); mod.start(t0); car.stop(t0 + o.d + .05); mod.stop(t0 + o.d + .05);
 }
 function nz(c, out, t0, o){   // ضوضاء مفلترة (ووش)
   const len = Math.floor(c.sampleRate * o.d), buf = c.createBuffer(1, len, c.sampleRate), ch = buf.getChannelData(0);
@@ -2366,31 +2383,55 @@ function nz(c, out, t0, o){   // ضوضاء مفلترة (ووش)
 }
 const SOUNDS = {
   send: [
-    {id: 'pop',    name: 'فقاعة',        play: (c, o, t) => { tn(c, o, t, {f: 420, f2: 1150, glide: .055, d: .13, v: .42, a: .007}); tn(c, o, t + .045, {type: 'triangle', f: 1500, f2: 2100, d: .08, v: .09}); }},
-    {id: 'tick',   name: 'نقرة ناعمة',    play: (c, o, t) => { tn(c, o, t, {f: 1800, f2: 1300, d: .05, v: .35, a: .002}); tn(c, o, t + .055, {f: 2300, f2: 1700, d: .05, v: .22, a: .002}); }},
-    {id: 'whoosh', name: 'ووش',           play: (c, o, t) => { nz(c, o, t, {f: 700, f2: 4200, d: .2, v: .4}); tn(c, o, t + .1, {f: 520, f2: 880, d: .1, v: .1}); }},
-    {id: 'drop',   name: 'قطرة',          play: (c, o, t) => { tn(c, o, t, {f: 1400, f2: 520, glide: .08, d: .16, v: .4, a: .003}); }},
-    {id: 'swish',  name: 'سهم',           play: (c, o, t) => { nz(c, o, t, {f: 2500, f2: 6000, d: .12, v: .16, a: .02, q: 2}); tn(c, o, t + .02, {f: 900, f2: 1600, d: .09, v: .18}); }},
-    {id: 'bubble', name: 'فقاعتين',       play: (c, o, t) => { tn(c, o, t, {f: 500, f2: 1000, d: .08, v: .35, a: .004}); tn(c, o, t + .07, {f: 700, f2: 1400, d: .09, v: .3, a: .004}); }}
+    {id: 'blue',   name: 'سهم أزرق (الافتراضي)', play: (c, o, t) => { nz(c, o, t, {f: 1200, f2: 5200, d: .16, v: .12, a: .03, q: 1.6}); tn(c, o, t + .01, {f: 620, f2: 1240, glide: .07, d: .12, v: .32, a: .006}); }},
+    {id: 'blip',   name: 'نقطة خضراء',     play: (c, o, t) => { tn(c, o, t, {f: 1320, f2: 980, glide: .03, d: .07, v: .38, a: .002}); tn(c, o, t, {type: 'triangle', f: 2640, f2: 1960, glide: .03, d: .05, v: .06, a: .002}); }},
+    {id: 'pop',    name: 'فقاعة',          play: (c, o, t) => { tn(c, o, t, {f: 420, f2: 1150, glide: .055, d: .13, v: .42, a: .007}); tn(c, o, t + .045, {type: 'triangle', f: 1500, f2: 2100, d: .08, v: .09}); }},
+    {id: 'tick',   name: 'نقرة ناعمة',      play: (c, o, t) => { tn(c, o, t, {f: 1800, f2: 1300, d: .05, v: .35, a: .002}); tn(c, o, t + .055, {f: 2300, f2: 1700, d: .05, v: .22, a: .002}); }},
+    {id: 'whoosh', name: 'ووش',             play: (c, o, t) => { nz(c, o, t, {f: 700, f2: 4200, d: .2, v: .4}); tn(c, o, t + .1, {f: 520, f2: 880, d: .1, v: .1}); }},
+    {id: 'drop',   name: 'قطرة',            play: (c, o, t) => { tn(c, o, t, {f: 1400, f2: 520, glide: .08, d: .16, v: .4, a: .003}); }},
+    {id: 'swish',  name: 'سهم سريع',        play: (c, o, t) => { nz(c, o, t, {f: 2500, f2: 6000, d: .12, v: .16, a: .02, q: 2}); tn(c, o, t + .02, {f: 900, f2: 1600, d: .09, v: .18}); }},
+    {id: 'bubble', name: 'فقاعتين',         play: (c, o, t) => { tn(c, o, t, {f: 500, f2: 1000, d: .08, v: .35, a: .004}); tn(c, o, t + .07, {f: 700, f2: 1400, d: .09, v: .3, a: .004}); }},
+    {id: 'glass',  name: 'زجاج',            play: (c, o, t) => { bl(c, o, t, {f: 2350, r: 2.76, i: .8, d: .28, v: .16}); }},
+    {id: 'wood',   name: 'خشبي',            play: (c, o, t) => { bl(c, o, t, {f: 740, r: 4, i: 1.2, d: .14, v: .32, a: .002}); }},
+    {id: 'paper',  name: 'ورقة',            play: (c, o, t) => { nz(c, o, t, {f: 3800, f2: 1800, d: .09, v: .22, a: .005, q: .8}); }},
+    {id: 'air',    name: 'نسمة',            play: (c, o, t) => { nz(c, o, t, {f: 500, f2: 2600, d: .26, v: .18, a: .08, q: .7}); }},
+    {id: 'up',     name: 'صعود',            play: (c, o, t) => { [[880, 0], [1175, .05], [1568, .1]].forEach(([f, d]) => tn(c, o, t + d, {f, d: .09, v: .18, a: .004})); }}
   ],
   recv: [
-    {id: 'twonote', name: 'نوتتين',       play: (c, o, t) => { tn(c, o, t, {f: 987.8, d: .42, v: .3, a: .015}); tn(c, o, t + .1, {f: 1318.5, d: .42, v: .3, a: .015}); }},
-    {id: 'tritone', name: 'ثلاث نغمات',   play: (c, o, t) => { [[1318.5, 0], [1568, .09], [2093, .18]].forEach(([f, d]) => tn(c, o, t + d, {f, d: .35, v: .24, a: .01})); }},
-    {id: 'note',    name: 'نوتة',          play: (c, o, t) => { tn(c, o, t, {f: 1046.5, d: .5, v: .3, a: .008}); tn(c, o, t, {f: 2093, d: .3, v: .07, a: .008}); tn(c, o, t + .12, {f: 1568, d: .55, v: .26, a: .01}); }},
-    {id: 'bell',    name: 'جرس',           play: (c, o, t) => { tn(c, o, t, {f: 880, d: 1.1, v: .28, a: .004}); tn(c, o, t, {f: 1760, d: .7, v: .1, a: .004}); tn(c, o, t, {f: 2640, d: .45, v: .05, a: .004}); }},
-    {id: 'pop2',    name: 'بوب مزدوج',     play: (c, o, t) => { tn(c, o, t, {f: 600, f2: 1200, d: .1, v: .38, a: .004}); tn(c, o, t + .12, {f: 800, f2: 1500, d: .12, v: .34, a: .004}); }},
-    {id: 'crystal', name: 'كريستال',       play: (c, o, t) => { tn(c, o, t, {f: 2093, d: .7, v: .18, a: .004}); tn(c, o, t + .08, {f: 3136, d: .6, v: .12, a: .004}); tn(c, o, t + .16, {f: 2637, d: .8, v: .14, a: .004}); }},
-    {id: 'drop',    name: 'قطرة ماء',      play: (c, o, t) => { tn(c, o, t, {f: 1600, f2: 600, glide: .07, d: .18, v: .4, a: .003}); tn(c, o, t + .2, {f: 1900, f2: 800, glide: .06, d: .15, v: .25, a: .003}); }}
+    {id: 'blue',    name: 'نغمة زرقاء (الافتراضي)', play: (c, o, t) => { bl(c, o, t, {f: 1318.5, r: 3.01, i: 1.1, d: .32, v: .26}); bl(c, o, t + .11, {f: 1760, r: 3.01, i: 1.1, d: .45, v: .24}); }},
+    {id: 'green',   name: 'دنگ أخضر',         play: (c, o, t) => { bl(c, o, t, {f: 1975.5, r: 2.4, i: .9, d: .25, v: .24}); bl(c, o, t + .13, {f: 1975.5, r: 2.4, i: .9, d: .38, v: .22}); }},
+    {id: 'twonote', name: 'نوتتين',           play: (c, o, t) => { tn(c, o, t, {f: 987.8, d: .42, v: .3, a: .015}); tn(c, o, t + .1, {f: 1318.5, d: .42, v: .3, a: .015}); }},
+    {id: 'tritone', name: 'ثلاث نغمات',       play: (c, o, t) => { [[1318.5, 0], [1568, .09], [2093, .18]].forEach(([f, d]) => tn(c, o, t + d, {f, d: .35, v: .24, a: .01})); }},
+    {id: 'note',    name: 'نوتة',              play: (c, o, t) => { tn(c, o, t, {f: 1046.5, d: .5, v: .3, a: .008}); tn(c, o, t, {f: 2093, d: .3, v: .07, a: .008}); tn(c, o, t + .12, {f: 1568, d: .55, v: .26, a: .01}); }},
+    {id: 'bell',    name: 'جرس',               play: (c, o, t) => { bl(c, o, t, {f: 880, r: 3.5, i: 1.8, d: 1.1, v: .26}); }},
+    {id: 'marimba', name: 'ماريمبا',           play: (c, o, t) => { [[784, 0], [988, .1], [1319, .2]].forEach(([f, d]) => bl(c, o, t + d, {f, r: 4, i: 1.3, d: .3, v: .28, a: .002})); }},
+    {id: 'harp',    name: 'هارب',              play: (c, o, t) => { [1047, 1319, 1568, 2093].forEach((f, i) => bl(c, o, t + i * .055, {f, r: 2, i: .7, d: .6, v: .16})); }},
+    {id: 'chime',   name: 'رنّة',               play: (c, o, t) => { bl(c, o, t, {f: 1568, r: 3.5, i: 1.4, d: .9, v: .2}); bl(c, o, t + .18, {f: 2093, r: 3.5, i: 1.4, d: 1, v: .18}); }},
+    {id: 'crystal', name: 'كريستال',           play: (c, o, t) => { tn(c, o, t, {f: 2093, d: .7, v: .18, a: .004}); tn(c, o, t + .08, {f: 3136, d: .6, v: .12, a: .004}); tn(c, o, t + .16, {f: 2637, d: .8, v: .14, a: .004}); }},
+    {id: 'sparkle', name: 'لمعة',              play: (c, o, t) => { [2093, 2637, 3136, 4186].forEach((f, i) => bl(c, o, t + i * .045, {f, r: 2.5, i: .6, d: .3, v: .11})); }},
+    {id: 'pop2',    name: 'بوب مزدوج',         play: (c, o, t) => { tn(c, o, t, {f: 600, f2: 1200, d: .1, v: .38, a: .004}); tn(c, o, t + .12, {f: 800, f2: 1500, d: .12, v: .34, a: .004}); }},
+    {id: 'drop',    name: 'قطرة ماء',          play: (c, o, t) => { tn(c, o, t, {f: 1600, f2: 600, glide: .07, d: .18, v: .4, a: .003}); tn(c, o, t + .2, {f: 1900, f2: 800, glide: .06, d: .15, v: .25, a: .003}); }},
+    {id: 'calm',    name: 'هادئ',              play: (c, o, t) => { tn(c, o, t, {f: 659, d: .7, v: .18, a: .05}); tn(c, o, t, {f: 988, d: .7, v: .12, a: .05}); }},
+    {id: 'pulse',   name: 'نبضة',              play: (c, o, t) => { bl(c, o, t, {f: 523, r: 2, i: 1, d: .18, v: .3}); bl(c, o, t + .16, {f: 523, r: 2, i: 1, d: .22, v: .26}); }},
+    {id: 'flute',   name: 'ناي',               play: (c, o, t) => { tn(c, o, t, {f: 1175, d: .3, v: .2, a: .04}); tn(c, o, t + .16, {f: 1397, d: .45, v: .2, a: .04}); }}
   ]
 };
+const SND_GAIN = {"send:blue": 2.22, "send:blip": 2.52, "send:pop": 2.1, "send:tick": 1.8, "send:whoosh": 3.15, "send:drop": 2.52, "send:swish": 2.91, "send:bubble": 1.18, "send:glass": 3.5, "send:wood": 3.15, "send:paper": 3.5, "send:air": 3.5, "send:up": 1.72, "recv:blue": 1.69, "recv:green": 1.86, "recv:twonote": 1.29, "recv:tritone": 1.59, "recv:note": 1.38, "recv:bell": 3.0, "recv:marimba": 1.46, "recv:harp": 1.59, "recv:chime": 1.8, "recv:crystal": 1.93, "recv:sparkle": 2.84, "recv:pop2": 1.29, "recv:drop": 1.64, "recv:calm": 2.0, "recv:pulse": 1.59, "recv:flute": 2.08};   // توحيد ارتفاع كل الأصوات
+// صوت خفيف لوصول رسالة وأنت داخل نفس المحادثة (مثل التطبيقات الكبيرة)
+function playInChat(){
+  if (!soundOn()) return;
+  try { unlockAudio(); const c = audioCtx; if (!c || c.state !== 'running') return; const out = c.createGain(); out.gain.value = .5; out.connect(getMaster(c));
+    tn(c, out, c.currentTime + .005, {f: 880, f2: 1320, glide: .04, d: .09, v: .3, a: .004}); } catch(e){}
+}
 const sndChoice = k => localStorage.getItem('ktg_snd_' + k) || SOUNDS[k][0].id;
 const sndName = k => { const id = sndChoice(k); if (id === 'custom') return localStorage.getItem(k === 'send' ? 'ktg_send_name' : 'ktg_tone_name') || 'من الهاتف'; return (SOUNDS[k].find(x => x.id === id) || SOUNDS[k][0]).name; };
 function synthPlay(k, id){
   try {
     unlockAudio();
     const c = audioCtx; if (!c || c.state !== 'running') return;
-    const out = c.createGain(); out.gain.value = .9; out.connect(c.destination);
-    (SOUNDS[k].find(x => x.id === id) || SOUNDS[k][0]).play(c, out, c.currentTime + .005);
+    const snd = SOUNDS[k].find(x => x.id === id) || SOUNDS[k][0];
+    const out = c.createGain(); out.gain.value = SND_GAIN[k + ':' + snd.id] || .9; out.connect(getMaster(c));
+    snd.play(c, out, c.currentTime + .005);
   } catch(e){}
 }
 let toneUrl = null, toneEl = null, sendUrl = null;
@@ -2418,7 +2459,7 @@ function playTone(){            // صوت وصول رسالة
   synthPlay('recv', id === 'custom' ? 'twonote' : id);
 }
 function playSend(){            // صوت إرسال رسالة
-  if (!soundOn() || followPhone()) return;   // لا يمكن معرفة إن كان الهاتف صامتاً، لذا لا صوت إرسال في هذا الوضع
+  if (!soundOn()) return;
   const id = sndChoice('send');
   if (id === 'custom' && sendUrl) return playFile(sendUrl, 3000);
   synthPlay('send', id === 'custom' ? 'pop' : id);
@@ -2539,7 +2580,7 @@ async function enableNotifications(){
   refreshNotifBanner();
   if (p !== 'granted') return toast('لم يتم السماح بالإشعارات — فعّلها من إعدادات المتصفح', 3500);
   toast('تم تفعيل الإشعارات 🔔');
-  if (followPhone()) showNotif(APP_NAME, 'هكذا ستصلك الإشعارات 🔔', 'test'); else playTone();
+  playTone();
   registerPush();
 }
 async function registerPush(){
@@ -3013,17 +3054,21 @@ function showSettings(){
   ov.querySelector('#stU').onclick = async () => { ov.remove(); const v = await checkUpdate(true); if (v === APP_VERSION) toast('لديك أحدث نسخة ✅ (' + APP_VERSION + ')'); else if (!v) toast('تعذر التحقق — تأكد من الإنترنت'); };
   ov.querySelector('.sheet h3').insertAdjacentHTML('afterend', `
     <div class="kv" style="align-items:center"><span>🔔 الإشعارات</span><b id="stN" style="color:var(--acc);cursor:pointer">${'Notification' in window ? (Notification.permission === 'granted' ? '✅ مفعّلة' : Notification.permission === 'denied' ? '🚫 مرفوضة' : 'تفعيل') : 'غير مدعومة'}</b></div>
-    <div class="kv" style="align-items:center"><span>🔊 إشعارات الرسائل<br><small style="color:var(--mut)">تتبع وضع الهاتف: صامت أو اهتزاز أو صوت</small></span><b id="stS" style="color:var(--acc);cursor:pointer">${soundOn() ? 'تشغيل ✅' : 'مطفأ'}</b></div>
-    <div style="margin-bottom:14px"></div>`);
+    <div class="kv" style="align-items:center"><span>🔊 صوت الرسائل</span><b id="stS" style="color:var(--acc);cursor:pointer">${soundOn() ? 'تشغيل ✅' : 'مطفأ'}</b></div>
+    <button class="kv" id="stTn" style="align-items:center;width:100%;text-align:right"><span>🎵 نغمة وصول الرسائل</span><b style="color:var(--acc)">${esc(sndName('recv'))} ›</b></button>
+    <button class="kv" id="sdTn" style="align-items:center;width:100%;text-align:right"><span>📤 صوت إرسال الرسالة</span><b style="color:var(--acc)">${esc(sndName('send'))} ›</b></button>
+    <div style="font-size:12.5px;color:var(--mut);margin:6px 0 14px;line-height:1.7">النغمات تعمل والبرنامج مفتوح (تتبع صوت الوسائط). عندما يكون البرنامج مغلقاً يصلك إشعار الهاتف ويتبع وضع الصامت والاهتزاز.</div>`);
   ov.querySelector('#stN').onclick = () => {
     if (!('Notification' in window)) return;
     if (Notification.permission === 'denied') return toast('الإشعارات مرفوضة — فعّلها من إعدادات المتصفح لهذا الموقع', 3500);
     enableNotifications().then(() => { ov.querySelector('#stN').textContent = Notification.permission === 'granted' ? '✅ مفعّلة' : 'تفعيل'; });
   };
+  ov.querySelector('#stTn').onclick = () => { ov.remove(); soundPicker('recv', showSettings); };
+  ov.querySelector('#sdTn').onclick = () => { ov.remove(); soundPicker('send', showSettings); };
   ov.querySelector('#stS').onclick = () => {
     localStorage.setItem('ktg_sound', soundOn() ? '0' : '1');
     ov.querySelector('#stS').textContent = soundOn() ? 'تشغيل ✅' : 'مطفأ';
-    if (soundOn() && !followPhone()) playTone();
+    if (soundOn()) playTone();
   };
   ov.querySelector('#ts').onclick = () => {
     const urls = ov.querySelector('#tu').value.trim();
