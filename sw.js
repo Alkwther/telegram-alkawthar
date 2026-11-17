@@ -1,32 +1,28 @@
-/* تلكرام الكوثر — Service Worker v1.9 (لا يخزّن أي ملفات) */
-// إذا تعذّر تحميل مكتبة الإشعارات يبقى باقي البرنامج يعمل (التنزيل، المشاركة)
-try {
-  importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
-  importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
-} catch (e) {}
-
+/* تلكرام الكوثر — Service Worker v3.1 (لا يخزّن أي ملفات) */
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
-let cfg = null;
-try { cfg = JSON.parse(new URL(self.location).searchParams.get('c') || 'null'); } catch (e) {}
-
-if (self.firebase && firebase.messaging && cfg && cfg.apiKey && !String(cfg.apiKey).startsWith('PASTE')) {
-  firebase.initializeApp(cfg);
-  const messaging = firebase.messaging();
-  // إشعار يصل والتطبيق مغلق أو في الخلفية
-  messaging.onBackgroundMessage(p => {
-    const d = p.data || {};
+// الإشعارات: نستقبلها مباشرة (بدون مكتبة Firebase) حتى تظهر دائماً والبرنامج مغلق.
+// لا نُظهر الإشعار فقط إذا كان نفس البرنامج (مطبعة أو مدرس) مفتوحاً أمام المستخدم الآن.
+self.addEventListener('push', e => {
+  let p = {};
+  try { p = e.data ? e.data.json() : {}; } catch (err) {}
+  const d = p.data || p.notification || p || {};
+  e.waitUntil((async () => {
+    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const mine = list.filter(c => c.url.startsWith(self.registration.scope));
+    if (mine.some(c => c.visibilityState === 'visible' && c.focused !== false)) return;
     return self.registration.showNotification(d.title || 'تلكرام الكوثر', {
       body: d.body || 'رسالة جديدة',
       tag: d.tag || undefined,
+      renotify: !!d.tag,
       icon: 'icon-192.png',
       badge: 'icon-192.png',
       vibrate: [100, 50, 100],
-      data: { url: d.url || './' }
+      data: { url: d.url || self.registration.scope }
     });
-  });
-}
+  })());
+});
 
 // استقبال الملفات من قائمة «مشاركة» في الهاتف (أندرويد)
 function shareDB(){
@@ -69,7 +65,7 @@ self.addEventListener('notificationclick', e => {
   const url = (e.notification.data && e.notification.data.url) || './';
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
     for (const c of list) if (c.url.split('#')[0] === url && 'focus' in c) return c.focus();
-    for (const c of list) if ('focus' in c) return c.focus();
+    for (const c of list) if (c.url.startsWith(self.registration.scope) && 'focus' in c) return c.focus();
     return self.clients.openWindow(url);
   }));
 });

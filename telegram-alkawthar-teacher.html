@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-teacher.json?v=3.0">
+<link rel="manifest" href="manifest-teacher.json?v=3.1">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -250,7 +250,7 @@ const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '3.0';
+const APP_VERSION = '3.1';
 const MAX_FILE = 200 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -2156,8 +2156,9 @@ async function registerPush(){
   if (DEMO || !VAPID_KEY || !swReg || !window.firebase || !firebase.messaging) return;
   try {
     const token = await firebase.messaging().getToken({vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg});
-    if (!token || localStorage.getItem('ktg_tok_' + myId()) === token) return;
-    await fs.collection('msgr_tokens').doc(token).set({id: myId(), url: location.href.split('#')[0], ts: Date.now()});
+    if (!token) return;
+    // نسجّل الجهاز في كل مرة يُفتح فيها البرنامج (إذا حُذف التسجيل من السيرفر يعود تلقائياً)
+    await fs.collection('msgr_tokens').doc(token).set({id: myId(), url: location.href.split('#')[0].split('?')[0], ts: Date.now()});
     localStorage.setItem('ktg_tok_' + myId(), token);
   } catch(e){ console.warn('push', e); }
 }
