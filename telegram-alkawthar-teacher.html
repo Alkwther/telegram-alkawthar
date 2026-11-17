@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-teacher.json?v=4.0">
+<link rel="manifest" href="manifest-teacher.json?v=4.2">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -40,7 +40,8 @@ html,body{position:fixed;inset:0;overscroll-behavior:none}
 .av.on::after{content:'';position:absolute;bottom:1px;left:1px;width:13px;height:13px;border-radius:50%;background:#4fce5d;border:2.5px solid #fff}
 /* list */
 .list{flex:1;overflow-y:auto;background:#fff}
-.row{display:flex;align-items:center;gap:12px;padding:8px 12px;position:relative;-webkit-user-select:none;user-select:none}
+.row{display:flex;align-items:center;gap:12px;padding:8px 12px;position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:pan-y}
+.selbar .sall{background:none;border:0;color:#fff;font:inherit;font-size:15px;padding:8px 10px;border-radius:8px}
 .srow{display:flex;align-items:center;direction:ltr;width:100%;padding:0 4px;border-radius:6px;transition:background .15s;cursor:pointer}
 .srow.on{background:rgba(64,140,220,.22)}
 .srow .sc{width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.12);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;margin-right:4px;box-shadow:0 1px 2px rgba(0,0,0,.25)}
@@ -266,7 +267,7 @@ const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '4.0';
+const APP_VERSION = '4.2';
 const MAX_FILE = 95 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -302,23 +303,20 @@ const distOpts = (prov, sel) => (DISTRICTS[prov] || []).map(d => `<option${d ===
 // حقول العنوان (تُستخدم في التسجيل وفي «عنواني»)
 function addrFields(a){
   a = a || {};
-  const other = a.district && !(DISTRICTS[a.province] || []).includes(a.district) ? a.district : '';
   return `<div class="fld"><label>المحافظة</label><select id="lprov"><option value="">اختر المحافظة</option>${PROVINCES.map(p => `<option${p === a.province ? ' selected' : ''}>${p}</option>`).join('')}</select></div>
-    <div class="fld" id="ldistW" style="${a.province ? '' : 'display:none'}"><label>القضاء أو الناحية</label><select id="ldist"><option value="">اختر القضاء / الناحية</option>${a.province ? distOpts(a.province, a.district) : ''}</select></div>
-    <div class="fld" id="lotherW" style="${other ? '' : 'display:none'}"><label>اكتب القضاء / الناحية / المنطقة</label><input id="lother" value="${esc(other)}" placeholder="مثال: ناحية النشوة"></div>
+    <div class="fld"><label>القضاء أو الناحية أو المنطقة</label><input id="ldist" list="ldistL" autocomplete="off" value="${esc(a.district || '')}" placeholder="اكتبها، أو اختر من الاقتراحات"><datalist id="ldistL">${(DISTRICTS[a.province] || []).map(d => `<option value="${d}">`).join('')}</datalist></div>
     <div class="fld"><label>أقرب نقطة دالة</label><input id="lmark" value="${esc(a.landmark || '')}" placeholder="مثال: قرب جامع الرحمن، مقابل مدرسة النور"></div>`;
 }
 function bindAddr(root){
-  const pv = root.querySelector('#lprov'), ds = root.querySelector('#ldist');
-  pv.onchange = () => { root.querySelector('#ldistW').style.display = pv.value ? '' : 'none'; ds.innerHTML = '<option value="">اختر القضاء / الناحية</option>' + (pv.value ? distOpts(pv.value) : ''); root.querySelector('#lotherW').style.display = 'none'; };
-  ds.onchange = () => { root.querySelector('#lotherW').style.display = ds.value === '__other' ? '' : 'none'; if (ds.value === '__other') root.querySelector('#lother').focus(); };
+  const pv = root.querySelector('#lprov');
+  pv.onchange = () => { root.querySelector('#ldistL').innerHTML = (DISTRICTS[pv.value] || []).map(d => `<option value="${d}">`).join(''); };
 }
 function readAddr(root){
-  const province = root.querySelector('#lprov').value, dv = root.querySelector('#ldist').value;
-  const district = dv === '__other' ? root.querySelector('#lother').value.trim() : dv;
+  const province = root.querySelector('#lprov').value;
+  const district = root.querySelector('#ldist').value.trim();
   const landmark = root.querySelector('#lmark').value.trim();
   if (!province) throw 'اختر المحافظة';
-  if (!district) throw 'اختر القضاء أو الناحية';
+  if (district.length < 2) throw 'اكتب القضاء أو الناحية أو المنطقة';
   if (landmark.length < 3) throw 'اكتب أقرب نقطة دالة';
   return {province, district, landmark};
 }
@@ -744,7 +742,7 @@ function showLogin(){
     ${isStandalone() ? '' : `<button class="btn sec" id="linst" style="margin-top:18px">📲 تنزيل البرنامج على الهاتف</button>`}</div>`;
     if ($('#lback')) $('#lback').onclick = () => { loginStep = 1; showLogin(); };
   if ($('#lforgot')) $('#lforgot').onclick = forgotSheet;
-  if ($('#ldist')) bindAddr(app());
+  if ($('#lprov') && $('#ldist')) bindAddr(app());
   if ($('#linst')) $('#linst').onclick = installSheet;
   $('#lgo').onclick = doLogin;
   app().querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') doLogin(); });
@@ -915,7 +913,7 @@ function drawListShell(){
 function headerInner(){
   const contacts = listMode === 'contacts';
   if (sel) return `<div class="selbar"><button class="ib" id="sx">${I.x}</button><b>${sel.size} محدد</b>
-    <button class="ib" id="sall" title="تحديد الكل" style="font-size:20px">☑️</button>
+    <button class="sall" id="sall">تحديد الكل</button>
     <button class="ib" id="scp" title="نسخ">${I.copy}</button>
     ${contacts ? '' : `<button class="ib" id="sdel" title="مسح">${I.trash}</button>`}</div>`;
   if (searching) return `<button class="ib" id="hb">${I.back}</button><input id="q" placeholder="بحث..." value="${esc(searchQ)}">`;
@@ -963,21 +961,31 @@ async function renderList(){
         <div class="mid"><div class="l1"><span class="nm">${esc(t.name)}</span></div>
         <div class="l2"><span class="ls" style="${isOnline(t.lastSeen) ? 'color:var(--acc)' : ''}">${esc(lastSeenText(t.lastSeen))} • ${esc(t.province)}${t.subject ? ' • ' + esc(t.subject) : ''}</span></div></div></div>`).join('');
   }
-  el.querySelectorAll('.row').forEach(r => {
-    let lp = null, sx = 0, sy = 0, fired = false;
-    const canSel = S.role === 'press';
-    r.addEventListener('pointerdown', e => {
-      fired = false; sx = e.clientX; sy = e.clientY; clearTimeout(lp);
-      if (canSel) lp = setTimeout(() => { fired = true; try { navigator.vibrate && navigator.vibrate(15); } catch(x){} toggleSel(r.dataset.c); }, 450);
-    });
-    r.addEventListener('pointermove', e => { if (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10){ clearTimeout(lp); lp = null; } });
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => r.addEventListener(ev, () => { clearTimeout(lp); lp = null; }));
-    r.addEventListener('contextmenu', e => { if (!canSel) return; e.preventDefault(); if (!fired){ fired = true; toggleSel(r.dataset.c); } });
-    r.onclick = () => {
-      if (fired){ fired = false; return; }
-      if (sel) toggleSel(r.dataset.c); else openChat(r.dataset.c);
-    };
-  });
+  el.querySelectorAll('.row').forEach(r => bindRowPress(r));
+}
+// الضغط مع الإبقاء على محادثة ← تحديد (يعمل باللمس والفأرة)
+let rowPress = null, selAt = 0;
+function bindRowPress(r){
+  const canSel = S.role === 'press', id = r.dataset.c;
+  let sx = 0, sy = 0;
+  const start = (x, y) => {
+    sx = x; sy = y; r._fired = false; clearTimeout(rowPress);
+    if (canSel && !sel) rowPress = setTimeout(() => { rowPress = null; r._fired = true; selAt = Date.now(); try { navigator.vibrate && navigator.vibrate(15); } catch(e){} toggleSel(id); }, 380);
+  };
+  const move = (x, y) => { if (Math.abs(x - sx) > 12 || Math.abs(y - sy) > 12){ clearTimeout(rowPress); rowPress = null; } };
+  const end = () => { clearTimeout(rowPress); rowPress = null; };
+  r.addEventListener('touchstart', e => { const t = e.touches[0]; start(t.clientX, t.clientY); }, {passive: true});
+  r.addEventListener('touchmove', e => { const t = e.touches[0]; move(t.clientX, t.clientY); }, {passive: true});
+  r.addEventListener('touchend', end); r.addEventListener('touchcancel', end);
+  r.addEventListener('mousedown', e => { if (e.button === 0) start(e.clientX, e.clientY); });
+  r.addEventListener('mousemove', e => move(e.clientX, e.clientY));
+  r.addEventListener('mouseup', end); r.addEventListener('mouseleave', end);
+  r.addEventListener('contextmenu', e => { if (!canSel) return; e.preventDefault(); if (!r._fired && !sel){ r._fired = true; selAt = Date.now(); end(); toggleSel(id); } });
+  r.onclick = () => {
+    // بعد الضغط المطوّل مباشرة يصل «نقر» من النظام — نتجاهله حتى لا يُلغى التحديد
+    if (r._fired || Date.now() - selAt < 700){ r._fired = false; return; }
+    if (sel) toggleSel(id); else openChat(id);
+  };
 }
 /* ---------- تحديد المحادثات (نسخ معلومات المدرسين / مسح) ---------- */
 function toggleSel(id){
