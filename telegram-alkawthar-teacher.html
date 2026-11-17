@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-teacher.json?v=3.9">
+<link rel="manifest" href="manifest-teacher.json?v=4.0">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -41,6 +41,15 @@ html,body{position:fixed;inset:0;overscroll-behavior:none}
 /* list */
 .list{flex:1;overflow-y:auto;background:#fff}
 .row{display:flex;align-items:center;gap:12px;padding:8px 12px;position:relative;-webkit-user-select:none;user-select:none}
+.srow{display:flex;align-items:center;direction:ltr;width:100%;padding:0 4px;border-radius:6px;transition:background .15s;cursor:pointer}
+.srow.on{background:rgba(64,140,220,.22)}
+.srow .sc{width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.12);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;margin-right:4px;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.srow.on .sc{background:var(--acc);border-color:#fff}
+.srow .b{direction:rtl;align-self:auto}
+.srow.mine .b{margin-right:auto}
+.srow:not(.mine) .b{margin-left:auto}
+.selhdr{position:absolute;inset:0;padding-top:env(safe-area-inset-top);background:var(--hdr);display:flex;align-items:center;gap:4px;padding-left:6px;padding-right:6px;z-index:3}
+.selhdr b{flex:1;font-size:19px;font-weight:500}
 .row .chk{width:24px;height:24px;border-radius:50%;border:2px solid #b5c0ca;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;transition:all .15s}
 .row.sel{background:#e3eefa}
 .row.sel .chk{background:var(--acc);border-color:var(--acc)}
@@ -257,7 +266,7 @@ const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '3.9';
+const APP_VERSION = '4.0';
 const MAX_FILE = 95 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -507,7 +516,7 @@ const LS = k => 'ktg_' + APP_ROLE + '_' + k;
 let S = JSON.parse(localStorage.getItem(LS('session')) || 'null');
 if (S && S.role !== APP_ROLE) S = null;
 let fs, auth;
-let view = 'login', openConv = null, listMode = 'chats', searchQ = '', provFilter = '', searching = false, sel = null;
+let view = 'login', openConv = null, listMode = 'chats', searchQ = '', provFilter = '', searching = false, sel = null, msel = null, skipPop = false;
 let directory = {}, pressInfo = {}, pins = {};
 const urlCache = {}, upProg = {}, dlProg = {}, avatarUrls = {}, avVer = {}, avBusy = {};
 const myId = () => S.role === 'press' ? 'press' : S.phone;
@@ -843,7 +852,7 @@ async function start(){
   setInterval(() => { if (view === 'chat') updateChatHeader(); }, 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden){ beat(); flushOutbox(); } });
   window.addEventListener('online', () => { beat(); flushOutbox(); });
-  window.addEventListener('popstate', () => { if (sel && view === 'list') return exitSelect(true); if (S.role === 'press' && (view === 'chat' || view === 'pins')) showList(); });
+  window.addEventListener('popstate', () => { if (skipPop){ skipPop = false; return; } if (msel && view === 'chat') return exitMsgSelect(true); if (sel && view === 'list') return exitSelect(true); if (S.role === 'press' && (view === 'chat' || view === 'pins')) showList(); });
 }
 /* ---------- أجهزة الحساب الواحد (هاتف + لابتوب) ---------- */
 let ownDevs = {}, devRegAt = 0;
@@ -1064,7 +1073,7 @@ function openDrawer(){
    المحادثة
    ===================================================================== */
 async function openChat(conv, root){
-  view = 'chat'; openConv = conv; replyTo = null; closeMsgMenu();
+  view = 'chat'; openConv = conv; replyTo = null; closeMsgMenu(); msel = null;
   const c = await DB.get('convs', conv) || {id: conv, lastTs: 0, unread: 0};
   if (c.unread){ c.unread = 0; await DB.put('convs', c); }
   if (!root) try { history.pushState({chat: conv}, ''); } catch(e){}
@@ -1145,10 +1154,12 @@ async function renderMessages(scroll){
     if (dk !== lastDay){ html += `<div class="day">${dayLabel(m.ts)}</div>`; lastDay = dk; }
     const n = msgs[i + 1];
     const tail = !n || n.mine !== m.mine || dayKey(n.ts) !== dk || n.ts - m.ts > 5 * 60000;
-    html += `<div class="b ${m.mine ? 'mine' : ''} ${tail ? 'tail' : ''} ${m.text && m.kind !== 'text' ? 'cap' : ''}" data-id="${esc(m.id)}">${bubbleInner(m)}</div>`;
+    const bh = `<div class="b ${m.mine ? 'mine' : ''} ${tail ? 'tail' : ''} ${m.text && m.kind !== 'text' ? 'cap' : ''}" data-id="${esc(m.id)}">${bubbleInner(m)}</div>`;
+    html += msel ? `<div class="srow ${m.mine ? 'mine' : ''} ${msel.has(m.id) ? 'on' : ''}" data-sid="${esc(m.id)}"><span class="sc">${msel.has(m.id) ? '✓' : ''}</span>${bh}</div>` : bh;
   });
   box.innerHTML = html;
   box.querySelectorAll('.b').forEach(bindBubble);
+  box.querySelectorAll('.srow').forEach(r => r.addEventListener('click', e => { if (!e.target.closest('.b')) toggleMsg(r.dataset.sid); }));
   if (scroll || nearBottom) box.scrollTop = box.scrollHeight;
 }
 function metaHtml(m, ovl){
@@ -1223,7 +1234,7 @@ function waveBars(id){
 }
 function bindBubble(el){
   const id = el.dataset.id;
-  el.oncontextmenu = e => { e.preventDefault(); openMsgMenu(id, el); };
+  el.oncontextmenu = e => { e.preventDefault(); toggleMsg(id); };
   el.querySelectorAll('[data-fk]').forEach(async img => { const u = await getUrl(img.dataset.fk); if (u) img.src = u; });
   if (!el._g){ el._g = 1; attachGestures(el, id); }
 }
@@ -1260,7 +1271,7 @@ function attachGestures(el, id){
     if (e.button && e.button !== 0) return;
     sx = e.clientX; sy = e.clientY; moved = false; swiping = false; dx = 0;
     clearTimeout(lp);
-    lp = setTimeout(() => { lp = null; moved = true; try { navigator.vibrate && navigator.vibrate(12); } catch(x){} openMsgMenu(id, el); }, 450);
+    lp = setTimeout(() => { lp = null; moved = true; try { navigator.vibrate && navigator.vibrate(12); } catch(x){} toggleMsg(id); }, 450);
   });
   el.addEventListener('pointermove', e => {
     if (sx == null) return;
@@ -1286,8 +1297,9 @@ function attachGestures(el, id){
   el.addEventListener('pointerup', e => {
     clearTimeout(lp); lp = null;
     if (sx == null) return; sx = null;
-    if (swiping){ const go = Math.abs(dx) > 60; endSwipe(); if (go) startReply(id); return; }
+    if (swiping){ const go = Math.abs(dx) > 60; endSwipe(); if (go && !msel) startReply(id); return; }
     if (moved) return;
+    if (msel){ toggleMsg(id); return; }
     if (e.target.closest('.rq,.rxc')) return;
     const ph = e.target.closest('.ph'); if (ph){ phoneSheet(ph.dataset.ph); return; }
     const now = Date.now(), x = e.clientX, y = e.clientY, target = e.target;
@@ -1470,6 +1482,58 @@ async function handleDelete(d){
     const m = await DB.get('msgs', id);
     if (m && m.from === d.from) await removeLocal(id);   // لا يحذف إلا صاحب الرسالة
   }
+}
+/* ---------- تحديد الرسائل (ضغطة طويلة) ← نسخ / مسح ---------- */
+function toggleMsg(id){
+  closeMsgMenu();
+  if (!msel){ msel = new Set(); try { history.pushState({msel: 1}, ''); } catch(e){} }
+  if (msel.has(id)) msel.delete(id); else msel.add(id);
+  if (!msel.size) return exitMsgSelect();
+  drawSelHdr(); renderMessages();
+}
+function drawSelHdr(){
+  const h = app().querySelector('.hdr'); if (!h) return;
+  let bar = h.querySelector('.selhdr');
+  if (!bar){ bar = document.createElement('div'); bar.className = 'selhdr'; h.style.position = 'relative'; h.appendChild(bar); }
+  bar.innerHTML = `<button class="ib" id="mx">${I.x}</button><b>${msel.size} محدد</b>
+    ${msel.size === 1 ? `<button class="ib" id="mrp" title="رد">${I.reply}</button>` : ''}
+    <button class="ib" id="mcp" title="نسخ">${I.copy}</button>
+    <button class="ib" id="mdl" title="مسح">${I.trash}</button>`;
+  bar.querySelector('#mx').onclick = () => exitMsgSelect();
+  if (bar.querySelector('#mrp')) bar.querySelector('#mrp').onclick = () => { const id = [...msel][0]; exitMsgSelect(); startReply(id); };
+  bar.querySelector('#mcp').onclick = copyMsgs;
+  bar.querySelector('#mdl').onclick = deleteMsgs;
+}
+function exitMsgSelect(fromPop){
+  if (!msel) return;
+  msel = null;
+  const bar = app().querySelector('.selhdr'); if (bar) bar.remove();
+  if (!fromPop && history.state && history.state.msel) try { skipPop = true; history.back(); } catch(e){}
+  renderMessages();
+}
+async function copyMsgs(){
+  const ms = (await Promise.all([...msel].map(id => DB.get('msgs', id)))).filter(Boolean).sort((a, b) => a.ts - b.ts);
+  const lines = ms.map(m => m.kind === 'text' ? m.text : [m.kind === 'image' ? '🖼 صورة' : m.kind === 'audio' ? '🎤 رسالة صوتية' : m.kind === 'video' ? '🎬 فيديو' : '📄 ' + (m.name || 'ملف'), m.text].filter(Boolean).join(' — '));
+  let head = '';
+  if (S.role === 'press'){
+    let u = directory[openConv] || {};
+    if (!u.district) try { const s = await fs.collection('msgr_users').doc(openConv).get(); if (s.exists) u = {...u, ...s.data()}; } catch(e){}
+    head = [u.name || convName(openConv), fullAddr(u) || u.province || '', openConv].filter(Boolean).join('\n') + '\n\n';
+  }
+  await copyTxt(head + lines.join('\n'), ms.length > 1 ? `تم نسخ ${ms.length} رسائل ✅` : 'تم النسخ ✅');
+  exitMsgSelect();
+}
+async function deleteMsgs(){
+  const ms = (await Promise.all([...msel].map(id => DB.get('msgs', id)))).filter(Boolean);
+  const n = ms.length, allMine = ms.every(m => m.mine && m.status !== 'failed');
+  const ov = sheet(`<h3>هل تريد المسح؟</h3>
+    <p style="color:var(--mut);margin:-4px 0 14px">${n === 1 ? 'سيتم مسح هذه الرسالة.' : `سيتم مسح ${n} رسائل.`}</p>
+    ${allMine ? `<button class="btn" id="dall" style="background:var(--danger)">نعم، من عندي وعند ${esc(convName(openConv))}</button>` : ''}
+    <button class="btn" id="dme" style="${allMine ? 'background:#fff;color:var(--danger);border:1.5px solid var(--danger)' : 'background:var(--danger)'}">نعم${allMine ? '، من عندي فقط' : ''}</button>
+    <button class="btn sec" id="dno">لا</button>`);
+  ov.querySelector('#dno').onclick = () => ov.remove();
+  ov.querySelector('#dme').onclick = async () => { ov.remove(); for (const m of ms) await removeLocal(m.id); toast(n === 1 ? 'تم المسح' : `تم مسح ${n} رسائل`); exitMsgSelect(); };
+  if (ov.querySelector('#dall')) ov.querySelector('#dall').onclick = async () => { ov.remove(); for (const m of ms) await deleteForAll(m); toast('تم المسح من الطرفين'); exitMsgSelect(); };
 }
 async function refreshMsg(id){
   if (view !== 'chat') return;
