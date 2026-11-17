@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-press.json?v=3.1">
+<link rel="manifest" href="manifest-press.json?v=3.2">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -250,11 +250,11 @@ const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'press';   // هذا الملف خاص بـالمطبعة
-const APP_VERSION = '3.1';
-const MAX_FILE = 200 * 1024 * 1024;
+const APP_VERSION = '3.2';
+const MAX_FILE = 100 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
-const RELAY_MAX = 10 * 1024 * 1024;
+const RELAY_MAX = 100 * 1024 * 1024;   // كل الملفات تُرفع وقت الإرسال — المستلم يحمّلها حتى لو خرج المرسل
 // الملفات الأكبر: تُجرَّب الطريقة المباشرة أولاً، وإن فشلت تُنقل مؤقتاً عبر السيرفر حتى هذا الحجم
 const PULL_MAX = 100 * 1024 * 1024;
 const CHUNK = 600 * 1024;
@@ -300,6 +300,13 @@ const $ = s => document.querySelector(s);
 const app = () => $('#app');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+// رقم خاص بهذا الجهاز (حتى تصل الرسائل لكل الأجهزة المفتوحة على نفس الحساب: هاتف + لابتوب)
+const devId = () => {
+  const k = 'ktg_dev_' + (typeof S !== 'undefined' && S ? S.role : 'x');
+  let d = localStorage.getItem(k);
+  if (!d){ d = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); localStorage.setItem(k, d); }
+  return d;
+};
 const fmtSize = b => b < 1024 ? b + ' B' : b < 1048576 ? (b/1024).toFixed(0) + ' KB' : (b/1048576).toFixed(1) + ' MB';
 const fmtTime = ts => new Date(ts).toLocaleTimeString('ar-IQ', {hour:'numeric', minute:'2-digit'});
 const fmtDur = s => { s = Math.max(0, Math.round(s || 0)); return Math.floor(s/60) + ':' + String(s%60).padStart(2, '0'); };
@@ -671,12 +678,12 @@ async function start(){
   await loadTone();
   await loadSendTone();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  listenQueue(); listenReceipts(); listenSignals(); listenReacts();
+  listenQueue(); listenReceipts(); listenSignals(); listenReacts(); watchOwnAcct();
   if (DEMO) startDemoBot();
   if (S.role === 'press'){
     fs.collection('msgr_users').onSnapshot(snap => {
       const before = directory; directory = {};
-      snap.forEach(d => { const x = d.data(); directory[d.id] = {phone: d.id, name: x.name, province: x.province, subject: x.subject, lastSeen: x.lastSeen, avatarV: x.avatarV || 0}; });
+      snap.forEach(d => { const x = d.data(); directory[d.id] = {phone: d.id, name: x.name, province: x.province, subject: x.subject, lastSeen: x.lastSeen, avatarV: x.avatarV || 0, devs: x.devs || {}}; });
       for (const p in directory) syncAvatar(p, directory[p].avatarV);
       for (const p in directory) if (isOnline(directory[p].lastSeen)) retryWaiting(p);
       if (view === 'list') renderList();
@@ -713,7 +720,38 @@ async function start(){
   window.addEventListener('online', () => { beat(); flushOutbox(); });
   window.addEventListener('popstate', () => { if (S.role === 'press' && (view === 'chat' || view === 'pins')) showList(); });
 }
+/* ---------- أجهزة الحساب الواحد (هاتف + لابتوب) ---------- */
+let ownDevs = {}, devRegAt = 0;
+const acctRef = id => id === 'press' ? fs.collection('msgr_config').doc('press') : fs.collection('msgr_users').doc(id);
+function watchOwnAcct(){
+  if (DEMO) return;
+  acctRef(myId()).onSnapshot(s => { ownDevs = (s.exists && s.data().devs) || {}; }, () => {});
+  registerDevice();
+}
+function registerDevice(){
+  if (DEMO || !S || Date.now() - devRegAt < 3600000) return;
+  devRegAt = Date.now();
+  acctRef(myId()).set({devs: {[devId()]: Date.now()}}, {merge: true}).catch(() => { devRegAt = 0; });
+}
+function activeDevs(acct){
+  const m = acct === myId() ? ownDevs : acct === 'press' ? (pressInfo.devs || {}) : ((directory[acct] || {}).devs || {});
+  return Object.keys(m).filter(k => Date.now() - m[k] < 14 * 86400000);
+}
+// الأجهزة التي يجب أن تصلها الرسالة: كل أجهزة المستلم + أجهزتي الأخرى
+const needFor = to => [...new Set([...activeDevs(to), ...activeDevs(myId()).filter(x => x !== devId())])];
+async function markGot(ref, d){
+  const need = d.need;
+  if (!Array.isArray(need) || !need.length || Date.now() - (d.ts || 0) > 30 * 86400000) return ref.delete().catch(() => {});
+  try {
+    await fs.runTransaction(async t => {
+      const s = await t.get(ref); if (!s.exists) return;
+      const x = s.data(), got = [...new Set([...(x.got || []), devId()])];
+      if ((x.need || []).every(n => got.includes(n))) t.delete(ref); else t.update(ref, {got});
+    });
+  } catch(e){ console.warn('got', e); }
+}
 function beat(){
+  registerDevice();
   if (document.hidden || !navigator.onLine) return;
   const ref = S.role === 'press' ? fs.collection('msgr_config').doc('press') : fs.collection('msgr_users').doc(S.phone);
   ref.update({lastSeen: Date.now()}).catch(() => {});
@@ -925,7 +963,7 @@ function metaHtml(m, ovl){
   return `<span class="meta ${ovl ? 'ovl' : ''}">${st}<span>${fmtTime(m.ts)}</span></span>`;
 }
 function fileStateOf(m){
-  if (m.fileKey || (m.mine && !m.hist)) return 'have';
+  if (m.fileKey || (m.mine && !m.hist && !m.sync)) return 'have';
   if (dlProg[m.id] != null) return 'dl';
   return m.fileState || 'remote';
 }
@@ -1087,19 +1125,26 @@ async function setReaction(id, e){
   await refreshMsg(id);
   if (next){ const el = document.querySelector(`.b[data-id="${CSS.escape(id)}"] .rxc.me`); if (el) el.classList.add('pop'); }
   try { navigator.vibrate && navigator.vibrate(10); } catch(x){}
-  const peer = m.mine ? m.to : m.from;
-  fs.collection('msgr_reacts').add({to: peer, from: myId(), mid: id, e: next, ts: Date.now()}).catch(() => {});
+  const peer = m.mine ? m.to : m.from, ts = Date.now();
+  m.rxt = {...(m.rxt || {}), mine: ts}; await DB.put('msgs', m);
+  fs.collection('msgr_reacts').add({to: peer, from: myId(), mid: id, e: next, ts}).catch(() => {});
+  fs.collection('msgr_reacts').add({to: myId(), from: myId(), dev: devId(), mid: id, e: next, ts}).catch(() => {});   // لأجهزتي الأخرى
 }
 function listenReacts(){
   fs.collection('msgr_reacts').where('to', '==', myId()).onSnapshot(snap => snap.docChanges().forEach(async ch => {
     if (ch.type !== 'added') return;
     const d = ch.doc.data();
-    ch.doc.ref.delete().catch(() => {});
+    if (Date.now() - (d.ts || 0) > 2 * 86400000){ ch.doc.ref.delete().catch(() => {}); return; }
+    const self = d.from === myId();
+    if (self && d.dev === devId()) return;
     const m = await DB.get('msgs', d.mid); if (!m) return;
-    m.rx = {...(m.rx || {}), theirs: d.e || null};
+    const side = self ? 'mine' : 'theirs', rt = m.rxt || {};
+    if ((rt[side] || 0) >= (d.ts || 0) && rt[side]) return;   // تفاعل أقدم أو طُبّق سابقاً
+    m.rx = {...(m.rx || {}), [side]: d.e || null};
+    m.rxt = {...rt, [side]: d.ts || 0};
     await DB.put('msgs', m);
     await refreshMsg(m.id);
-    if (d.e){
+    if (!self && d.e && Date.now() - (d.ts || 0) < 120000){
       const el = document.querySelector(`.b[data-id="${CSS.escape(m.id)}"] .rxc:not(.me)`); if (el) el.classList.add('pop');
       if (document.hidden) showNotif(convName(m.conv), `تفاعل ${d.e} على رسالتك: ${previewText(m).slice(0, 60)}`, 'rx_' + m.id);
     }
@@ -1218,6 +1263,7 @@ async function deleteForAll(m){
     } catch(e){}
   }
   await fs.collection('msgr_signal').add({to: m.to, from: myId(), type: 'del', ids: [m.id], ts: Date.now()}).catch(() => {});
+  await fs.collection('msgr_signal').add({to: myId(), from: myId(), type: 'del', ids: [m.id], ts: Date.now()}).catch(() => {});
 }
 async function handleDelete(d){
   for (const id of (d.ids || [])){
@@ -1329,7 +1375,8 @@ function fileActions(m){
     if (share) opts += `<button class="opt" data-a="share">${I.share}مشاركة (واتساب، تلكرام…)</button>`;
     else opts += `<button class="opt" data-a="open">${I.doc}فتح</button>`;
   } else {
-    opts += `<button class="opt" data-a="open">${I.doc}فتح</button>`;
+    opts += `<button class="opt" data-a="native">${I.doc}فتح ببرنامج الجهاز${isPdf ? ' (Adobe / Edge / قارئ PDF)' : ''}</button>`;
+    opts += `<button class="opt" data-a="open">${I.doc}فتح في المتصفح</button>`;
     opts += `<button class="opt" data-a="saveas">${I.save}حفظ في مكان على الجهاز…</button>`;
     if (share) opts += `<button class="opt" data-a="share">${I.share}مشاركة</button>`;
   }
@@ -1341,6 +1388,7 @@ function fileActions(m){
     ov.remove();
     const a = b.dataset.a;
     if (a === 'open') openFile(m.fileKey);
+    else if (a === 'native'){ saveFile(m.fileKey, m.name); toast('اضغط على الملف في قائمة التنزيلات ⬇️ (أعلى المتصفح) ليفتح ببرنامج الجهاز', 5000); }
     else if (a === 'save') saveFile(m.fileKey, m.name);
     else if (a === 'saveas') saveFileAs(m.fileKey, m.name);
     else shareFile(m.fileKey, m.name);
@@ -1443,16 +1491,18 @@ async function flushOutbox(){
     for (const m of out){
       try {
         let relay = false, chunks = 0;
+        const need = needFor(m.to);
         if (m.fileKey && m.size <= RELAY_MAX){
           const blob = await DB.get('files', m.fileKey);
           if (blob instanceof Blob){
             upProg[m.id] = 0; refreshMsg(m.id);
-            chunks = await uploadBlob(m.rid, blob, 1, p => { upProg[m.id] = p; refreshMsg(m.id); });
+            chunks = await uploadBlob(m.rid, blob, Math.max(1, need.length), p => { upProg[m.id] = p; refreshMsg(m.id); });
             relay = true;
           }
         }
         await fs.collection('msgr_queue').doc(m.id).set({conv: m.conv, from: m.from, to: m.to, kind: m.kind, text: m.text, name: m.name,
-          mime: m.mime, size: m.size, ts: m.ts, rid: m.rid, thumb: m.thumb || null, w: m.w || 0, h: m.h || 0, dur: m.dur || 0, relay, chunks, reply: m.reply || null});
+          mime: m.mime, size: m.size, ts: m.ts, rid: m.rid, thumb: m.thumb || null, w: m.w || 0, h: m.h || 0, dur: m.dur || 0, relay, chunks, reply: m.reply || null,
+          need, got: [], dev: devId()});
         delete upProg[m.id];
         notifyPush([m.id]);
         const cur = await DB.get('msgs', m.id);
@@ -1473,6 +1523,24 @@ function listenQueue(){
   fs.collection('msgr_queue').where('to', '==', myId()).onSnapshot(snap => {
     snap.docChanges().forEach(ch => { if (ch.type === 'added') receive(ch.doc); });
   }, e => console.error(e));
+  // رسائل أرسلتُها من جهازي الآخر (هاتف/لابتوب) تظهر هنا أيضاً
+  fs.collection('msgr_queue').where('from', '==', myId()).onSnapshot(snap => {
+    snap.docChanges().forEach(ch => { if (ch.type === 'added') receiveOwn(ch.doc).catch(e => console.warn(e)); });
+  }, e => console.error(e));
+}
+async function receiveOwn(doc){
+  const d = doc.data();
+  if (!d.dev || d.dev === devId() || !Array.isArray(d.need) || !d.need.includes(devId())) return;
+  if (!await DB.get('msgs', doc.id)){
+    const msg = {id: doc.id, conv: d.conv, from: d.from, to: d.to, kind: d.kind || 'text', text: d.text || '', name: d.name || '',
+      mime: d.mime || '', size: d.size || 0, ts: d.ts || Date.now(), status: 'sent', mine: true, sync: true, fileKey: null,
+      rid: d.rid || null, thumb: d.thumb || null, w: d.w || 0, h: d.h || 0, dur: d.dur || 0, fileState: d.rid ? 'remote' : null,
+      reply: d.reply || null, rr: d.rid && d.relay ? d.rid : null, rc: d.chunks || 0};
+    await DB.put('msgs', msg);
+    await touchConv(msg.conv, msg, false);
+    if (view === 'chat' && openConv === msg.conv) await renderMessages();
+  }
+  await markGot(doc.ref, d);
 }
 async function receive(doc){
   if (receiving.has(doc.id)) return;
@@ -1494,7 +1562,7 @@ async function receive(doc){
       // الصور والملفات لا تُحمّل إلا عند الضغط عليها (حفاظاً على ذاكرة الجهاز) — فقط الرسائل الصوتية تُحمّل تلقائياً
       if (msg.rid && msg.kind === 'audio' && (d.relay || isOnline(peerSeen(msg.from)))) downloadMsg(msg.id, true);
     }
-    await doc.ref.delete().catch(() => {});
+    await markGot(doc.ref, d);
     await fs.collection('msgr_receipts').add({to: d.from, ids: [doc.id], ts: Date.now()}).catch(() => {});
   } catch(e){
     console.error(e); receiving.delete(doc.id);
@@ -1509,7 +1577,8 @@ function listenReceipts(){
         const m = await DB.get('msgs', id);
         if (m && m.status !== 'delivered'){ m.status = 'delivered'; await DB.put('msgs', m); refreshMsg(id); touchConv(m.conv, m, false, true); }
       }
-      ch.doc.ref.delete().catch(() => {});
+      // يبقى قليلاً حتى تراه أجهزتي الأخرى، ثم يُحذف
+      if (Date.now() - (ch.doc.data().ts || 0) > 2 * 86400000) ch.doc.ref.delete().catch(() => {});
     });
   }, e => console.error(e));
 }
@@ -1548,16 +1617,31 @@ function waitIce(pc){
   });
 }
 const sessions = {};
+function sigSeen(id){
+  try {
+    const k = 'ktg_sig_' + devId(), a = JSON.parse(localStorage.getItem(k) || '[]');
+    if (a.includes(id)) return true;
+    a.push(id); localStorage.setItem(k, JSON.stringify(a.slice(-400)));
+  } catch(e){}
+  return false;
+}
 function listenSignals(){
   fs.collection('msgr_signal').where('to', '==', myId()).onSnapshot(snap => snap.docChanges().forEach(ch => {
     if (ch.type !== 'added') return;
-    const d = ch.doc.data();
-    ch.doc.ref.delete().catch(() => {});
-    if (d.type === 'histreq'){ if (S.role === 'press' && Date.now() - (d.ts || 0) < 7 * 86400000) serveHistory(d).catch(e => console.warn(e)); return; }
-    if (d.type === 'hist'){ if (Date.now() - (d.ts || 0) < 7 * 86400000) loadHistory(d).catch(e => console.warn(e)); return; }
-    if (d.type === 'del'){ if (Date.now() - (d.ts || 0) < 30 * 86400000) handleDelete(d).catch(e => console.warn(e)); return; }
-    if (d.type === 'late'){ if (Date.now() - (d.ts || 0) < 14 * 86400000) handleLate(d).catch(e => console.warn(e)); return; }
-    if (Date.now() - (d.ts || 0) > 90000) return;
+    const d = ch.doc.data(), age = Date.now() - (d.ts || 0);
+    // إشارات طويلة الأمد: تبقى حتى تراها كل أجهزة الحساب، وكل جهاز ينفذها مرة واحدة
+    const keep = {late: 14, hist: 7, histreq: 7, del: 30}[d.type];
+    if (keep){
+      if (age > keep * 86400000){ ch.doc.ref.delete().catch(() => {}); return; }
+      if (sigSeen(ch.doc.id)) return;
+      if (d.type === 'histreq'){ if (S.role === 'press') serveHistory(d).catch(e => console.warn(e)); }
+      else if (d.type === 'hist') loadHistory(d).catch(e => console.warn(e));
+      else if (d.type === 'del') handleDelete(d).catch(e => console.warn(e));
+      else handleLate(d).catch(e => console.warn(e));
+      return;
+    }
+    if (age > 90000){ ch.doc.ref.delete().catch(() => {}); return; }
+    setTimeout(() => ch.doc.ref.delete().catch(() => {}), 60000);
     if (d.type === 'offer') serveFile(d).catch(e => console.error(e));
     else if (d.type === 'pull') servePull(d).catch(e => console.error(e));
     else if (d.type === 'relayed') sessions[d.sid]?.relayed(d.rr, d.chunks, d.mime);
@@ -1630,9 +1714,13 @@ async function pullRelay(owner, rid, onProg){
   releaseBlob(got.rr).catch(() => {});
   return new Blob(parts, {type: got.mime || ''});
 }
+async function iAmOrigin(rid){
+  return !!rid && (await DB.all('msgs')).some(x => x.mine && !x.sync && (x.rid === rid || x.fileKey === rid));
+}
 async function servePull(d){
   const blob = d.rid ? await DB.get('files', d.rid) : null;
   if (!(blob instanceof Blob)){
+    if (!await iAmOrigin(d.rid)) return;   // ربما يملكه جهاز آخر لنفس الحساب
     await fs.collection('msgr_signal').add({to: d.from, from: myId(), sid: d.sid, type: 'error', code: 'gone', ts: Date.now()});
     return;
   }
@@ -1680,6 +1768,15 @@ async function handleLate(d){
 // الملفات المرفوعة مؤقتاً ولم يحمّلها أحد خلال 14 يوماً تُحذف من السيرفر (يبقى تحميلها مباشرة من جهاز المرسل)
 async function purgeOldRelays(){
   if (DEMO || !navigator.onLine) return;
+  // ملفات مؤقتة قديمة على السيرفر (من أي جهاز) تُحذف بعد 14 يوماً
+  try {
+    const q = await fs.collection('msgr_blobs').where('ts', '<', Date.now() - 14 * 86400000).limit(40).get();
+    for (const doc of q.docs){
+      const n = doc.data().chunks || 0;
+      for (let i = 0; i < n; i++) await fs.collection('msgr_chunks').doc(doc.id + '_' + i).delete().catch(() => {});
+      await doc.ref.delete().catch(() => {});
+    }
+  } catch(e){}
   const old = (await DB.all('msgs')).filter(m => m.mine && (m.relayed || m.relay) && !m.purged && Date.now() - m.ts > 14 * 86400000);
   const done = new Set();
   for (const m of old){
@@ -1742,6 +1839,7 @@ async function requestFile(owner, rid, onProg){
 async function serveFile(d){
   const blob = d.rid ? await DB.get('files', d.rid) : null;
   if (!(blob instanceof Blob)){
+    if (!await iAmOrigin(d.rid)) return;
     await fs.collection('msgr_signal').add({to: d.from, from: myId(), sid: d.sid, type: 'error', code: 'gone', ts: Date.now()});
     return;
   }
@@ -1775,7 +1873,7 @@ async function sendBlob(dc, blob){
 /* ---------- التحميل عند الضغط ---------- */
 async function downloadMsg(id, silent){
   const m = await DB.get('msgs', id);
-  if (!m || (m.mine && !m.hist) || m.fileKey || dlProg[id] != null) return;
+  if (!m || (m.mine && !m.hist && !m.sync) || m.fileKey || dlProg[id] != null) return;
   // رسائل السجل القديم: الملف موجود في جهاز المطبعة
   // الملف مرفوع مؤقتاً على السيرفر: يُحمّل فوراً حتى لو كان المرسل غير متصل
   if (m.rr && !DEMO){
@@ -1786,7 +1884,7 @@ async function downloadMsg(id, silent){
     }
     const c2 = await DB.get('msgs', id); if (c2){ c2.rr = null; await DB.put('msgs', c2); }
   }
-  const owner = m.hist ? 'press' : m.from, frid = m.hist ? m.hk : m.rid;
+  const owner = m.hist ? 'press' : m.sync ? myId() : m.from, frid = m.hist ? m.hk : m.rid;
   dlProg[id] = 0; refreshMsg(id);
   try {
     const onP = p => { dlProg[id] = p; refreshMsg(id); };
@@ -2619,14 +2717,16 @@ function showBroadcast(){
         if (kind === 'audio') dur = await mediaDuration(file);
       }
       let relay = false, chunks = 0;
-      if (file && file.size <= RELAY_MAX){ btn.textContent = 'جارِ رفع المرفق...'; chunks = await uploadBlob(fk, file, tg.length); relay = true; }
+      const needs = {}; let pend = 0;
+      for (const t of tg){ needs[t.phone] = needFor(t.phone); pend += Math.max(1, needs[t.phone].length); }
+      if (file && file.size <= RELAY_MAX){ btn.textContent = 'جارِ رفع المرفق...'; chunks = await uploadBlob(fk, file, pend); relay = true; }
       const ts = Date.now();
       for (let i = 0; i < tg.length; i += 400){
         const batch = fs.batch(), locals = [];
         for (const t of tg.slice(i, i + 400)){
           const id = uid();
           const data = {conv: t.phone, from: 'press', to: t.phone, kind, text, name, mime, size, ts, rid: fk, thumb: th.thumb, w: th.w, h: th.h, dur, relay, chunks};
-          batch.set(fs.collection('msgr_queue').doc(id), data);
+          batch.set(fs.collection('msgr_queue').doc(id), {...data, need: needs[t.phone], got: [], dev: devId()});
           locals.push({...data, id, status: 'sent', mine: true, fileKey: fk});
         }
         await batch.commit();
