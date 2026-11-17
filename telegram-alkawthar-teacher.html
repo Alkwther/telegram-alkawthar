@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-teacher.json?v=2.6">
+<link rel="manifest" href="manifest-teacher.json?v=3.0">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -250,7 +250,7 @@ const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '2.6';
+const APP_VERSION = '3.0';
 const MAX_FILE = 200 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -638,6 +638,7 @@ async function doLogin(){
       const h = await sha('kawthar-t|' + loginPhone + '|' + pin);
       if (loginExisting){
         if (loginExisting.pinHash !== h) throw 'الرقم السري غير صحيح — اطلبه من ' + APP_NAME;
+        try { sessionStorage.setItem('ktg_offer_hist', '1'); } catch(e){}
         await setSession({role: 'teacher', phone: loginPhone, name: loginExisting.name, province: loginExisting.province, subject: loginExisting.subject || ''});
       } else {
         const name = $('#lname').value.trim(), province = $('#lprov').value, subject = $('#lsub').value.trim();
@@ -696,10 +697,12 @@ async function start(){
     }, e => console.error(e));
     if (!await DB.get('convs', S.phone)) await DB.put('convs', {id: S.phone, unread: 0, lastTs: 0, lastText: ''});
     openChat(S.phone, true);
+    if (!DEMO) setTimeout(maybeOfferHistory, 1200);
   }
   beat(); flushOutbox();
   setupNotifications();
   setTimeout(pushLate, 4000);
+  setTimeout(() => purgeOldRelays().catch(() => {}), 20000);
   setTimeout(checkShared, 1500);
   setTimeout(checkUpdate, 3000);
   setInterval(checkUpdate, 10 * 60000);
@@ -922,7 +925,7 @@ function metaHtml(m, ovl){
   return `<span class="meta ${ovl ? 'ovl' : ''}">${st}<span>${fmtTime(m.ts)}</span></span>`;
 }
 function fileStateOf(m){
-  if (m.mine || m.fileKey) return 'have';
+  if (m.fileKey || (m.mine && !m.hist)) return 'have';
   if (dlProg[m.id] != null) return 'dl';
   return m.fileState || 'remote';
 }
@@ -1136,7 +1139,7 @@ async function openMsgMenu(id, el){
   if (m.text) items.push(['copy', I.copy, 'نسخ النص']);
   if (m.fileKey){ items.push(['save', I.save, isMobile() ? 'حفظ في الهاتف' : 'حفظ في مكان على الجهاز']); if (canShareFiles()) items.push(['share', I.share, 'مشاركة']); }
   if (m.mine && m.status === 'failed') items.push(['retry', I.send, 'إعادة الإرسال']);
-  items.push(['del', I.trash, 'حذف من جهازي']);
+  items.push(['del', I.trash, 'حذف']);
   const ov = document.createElement('div'); ov.className = 'rmov'; ov.id = 'rmov';
   ov.innerHTML = `<div class="rpick">${EMOJIS.map((e, i) => `<button data-e="${e}" class="${e === cur ? 'on' : ''}" style="animation-delay:${i * 30}ms">${e}</button>`).join('')}</div>
     <div class="rmenu">${items.map(([k, ic, t]) => `<button data-a="${k}" class="${k === 'del' ? 'red' : ''}">${ic}${t}</button>`).join('')}</div>`;
@@ -1160,14 +1163,67 @@ async function openMsgMenu(id, el){
     else if (a === 'save') (isMobile() ? saveFile : saveFileAs)(m.fileKey, m.name || 'file');
     else if (a === 'share') shareFile(m.fileKey, m.name || 'file');
     else if (a === 'retry') flushOutbox();
-    else if (a === 'del'){
-      if (!await askConfirm('حذف هذه الرسالة من جهازك؟', 'حذف')) return;
-      if (playingId === id) stopAudio();
-      await DB.del('msgs', id);
-      if (m.fileKey && !(await DB.all('msgs')).some(x => x.fileKey === m.fileKey)) await DB.del('files', m.fileKey);
-      renderMessages();
-    }
+    else if (a === 'del') deleteFlow(m);
   });
+}
+/* ---------- حذف رسالة: من جهازي فقط، أو من الطرفين ---------- */
+function deleteFlow(m){
+  const kindTxt = m.kind === 'image' ? 'الصورة' : m.kind === 'audio' ? 'الرسالة الصوتية' : m.kind === 'video' ? 'الفيديو' : m.kind === 'file' ? 'الملف' : 'الرسالة';
+  const peer = convName(m.conv);
+  const canAll = m.mine && m.status !== 'failed';
+  const ov = sheet(`<h3>حذف ${kindTxt}؟</h3>
+    ${canAll ? `<button class="opt" data-a="all" style="color:var(--danger)">${I.trash}حذف من عندي وعند ${esc(peer)}</button>` : ''}
+    <button class="opt" data-a="me" style="color:var(--danger)">${I.trash}حذف من عندي فقط</button>
+    <button class="opt" data-a="x">إلغاء</button>`);
+  ov.querySelectorAll('.opt').forEach(b => b.onclick = async () => {
+    ov.remove();
+    if (b.dataset.a === 'me'){ await removeLocal(m.id); toast('تم الحذف من جهازك'); }
+    else if (b.dataset.a === 'all'){ await deleteForAll(m); toast('تم الحذف من الطرفين'); }
+  });
+}
+async function removeLocal(id){
+  const m = await DB.get('msgs', id); if (!m) return;
+  if (playingId === id) stopAudio();
+  await DB.del('msgs', id);
+  if (m.fileKey && !(await DB.all('msgs')).some(x => x.fileKey === m.fileKey)){
+    await DB.del('files', m.fileKey);
+    if (urlCache[m.fileKey]){ URL.revokeObjectURL(urlCache[m.fileKey]); delete urlCache[m.fileKey]; }
+  }
+  await updateConvPreview(m.conv);
+  if (view === 'chat' && openConv === m.conv){
+    const el = document.querySelector(`.b[data-id="${CSS.escape(id)}"]`);
+    if (el){ el.style.transition = 'opacity .2s, transform .2s'; el.style.opacity = '0'; el.style.transform = 'scale(.9)'; setTimeout(() => renderMessages(), 200); }
+    else renderMessages();
+  }
+}
+async function updateConvPreview(conv){
+  const c = await DB.get('convs', conv); if (!c) return;
+  const last = (await DB.byConv(conv)).sort((a, b) => a.ts - b.ts).pop();
+  if (last){ c.lastText = previewText(last); c.lastTs = last.ts; c.lastMine = !!last.mine; c.lastStatus = last.status; c.lastId = last.id; }
+  else { c.lastText = ''; c.lastId = null; }
+  await DB.put('convs', c);
+  if (view === 'list') renderList();
+}
+async function deleteForAll(m){
+  const others = (await DB.all('msgs')).some(x => x.id !== m.id && x.rid && x.rid === m.rid);
+  await removeLocal(m.id);
+  if (DEMO) return;
+  // إذا لم تصل بعد: نلغيها من صندوق الانتظار
+  fs.collection('msgr_queue').doc(m.id).delete().catch(() => {});
+  // نحذف الملف المرفوع مؤقتاً (إلا إذا كان مشتركاً مع رسائل أخرى مثل الإرسال الجماعي)
+  if (m.rid && !others) for (const rid of [m.rid, m.id + '_l']){
+    try {
+      const ref = fs.collection('msgr_blobs').doc(rid), s = await ref.get();
+      if (s.exists){ const n = s.data().chunks || 0; for (let i = 0; i < n; i++) fs.collection('msgr_chunks').doc(rid + '_' + i).delete().catch(() => {}); ref.delete().catch(() => {}); }
+    } catch(e){}
+  }
+  await fs.collection('msgr_signal').add({to: m.to, from: myId(), type: 'del', ids: [m.id], ts: Date.now()}).catch(() => {});
+}
+async function handleDelete(d){
+  for (const id of (d.ids || [])){
+    const m = await DB.get('msgs', id);
+    if (m && m.from === d.from) await removeLocal(id);   // لا يحذف إلا صاحب الرسالة
+  }
 }
 async function refreshMsg(id){
   if (view !== 'chat') return;
@@ -1427,16 +1483,16 @@ async function receive(doc){
       const conv = S.role === 'press' ? d.from : S.phone;
       const msg = {id: doc.id, conv, from: d.from, to: d.to, kind: d.kind || 'text', text: d.text || '', name: d.name || '',
         mime: d.mime || '', size: d.size || 0, ts: d.ts || Date.now(), status: 'recv', mine: false, fileKey: null,
-        rid: d.rid || null, thumb: d.thumb || null, w: d.w || 0, h: d.h || 0, dur: d.dur || 0, fileState: d.rid ? 'remote' : null, reply: d.reply || null};
+        rid: d.rid || null, thumb: d.thumb || null, w: d.w || 0, h: d.h || 0, dur: d.dur || 0, fileState: d.rid ? 'remote' : null, reply: d.reply || null,
+        rr: d.rid && d.relay ? d.rid : null, rc: d.chunks || 0};
       await DB.put('msgs', msg);
       await touchConv(conv, msg, true);
       if (view === 'chat' && openConv === conv) await renderMessages();
       try { navigator.vibrate && navigator.vibrate([90, 50, 90]); } catch(e){}
       if (!document.hidden) playTone();
       else showNotif(convName(conv), previewText(msg) || 'رسالة جديدة', 'm_' + doc.id);
-      if (msg.rid && d.relay) await fetchRelay(msg.id, d.rid, d.chunks, d.mime);
-      // الملفات الكبيرة: الصوت والصور تُحمّل تلقائياً إذا كان المرسل متصلاً
-      else if (msg.rid && (msg.kind === 'audio' || (msg.kind === 'image' && msg.size < 1.5 * 1048576)) && isOnline(peerSeen(msg.from))) downloadMsg(msg.id, true);
+      // الصور والملفات لا تُحمّل إلا عند الضغط عليها (حفاظاً على ذاكرة الجهاز) — فقط الرسائل الصوتية تُحمّل تلقائياً
+      if (msg.rid && msg.kind === 'audio' && (d.relay || isOnline(peerSeen(msg.from)))) downloadMsg(msg.id, true);
     }
     await doc.ref.delete().catch(() => {});
     await fs.collection('msgr_receipts').add({to: d.from, ids: [doc.id], ts: Date.now()}).catch(() => {});
@@ -1497,6 +1553,9 @@ function listenSignals(){
     if (ch.type !== 'added') return;
     const d = ch.doc.data();
     ch.doc.ref.delete().catch(() => {});
+    if (d.type === 'histreq'){ if (S.role === 'press' && Date.now() - (d.ts || 0) < 7 * 86400000) serveHistory(d).catch(e => console.warn(e)); return; }
+    if (d.type === 'hist'){ if (Date.now() - (d.ts || 0) < 7 * 86400000) loadHistory(d).catch(e => console.warn(e)); return; }
+    if (d.type === 'del'){ if (Date.now() - (d.ts || 0) < 30 * 86400000) handleDelete(d).catch(e => console.warn(e)); return; }
     if (d.type === 'late'){ if (Date.now() - (d.ts || 0) < 14 * 86400000) handleLate(d).catch(e => console.warn(e)); return; }
     if (Date.now() - (d.ts || 0) > 90000) return;
     if (d.type === 'offer') serveFile(d).catch(e => console.error(e));
@@ -1505,6 +1564,50 @@ function listenSignals(){
     else if (d.type === 'answer') sessions[d.sid]?.answer(d.sdp);
     else if (d.type === 'error') sessions[d.sid]?.fail(d.code);
   }), e => console.error(e));
+}
+/* ---------- سجل المحادثات على جهاز جديد (المطبعة تحتفظ بكل المحادثات وترسلها) ---------- */
+async function maybeOfferHistory(){
+  let flag = null; try { flag = sessionStorage.getItem('ktg_offer_hist'); sessionStorage.removeItem('ktg_offer_hist'); } catch(e){}
+  if (!flag || S.role !== 'teacher') return;
+  if ((await DB.byConv(S.phone)).length) return;   // الجهاز فيه محادثات أصلاً
+  if (await askConfirm('هل تريد تحميل المحادثات السابقة مع ' + APP_NAME + ' على هذا الجهاز؟', 'تحميل المحادثات')) requestHistory();
+}
+async function requestHistory(){
+  if (DEMO) return toast('غير متاح في النسخة التجريبية');
+  try {
+    await fs.collection('msgr_signal').add({to: 'press', from: myId(), type: 'histreq', ts: Date.now()});
+    toast(isOnline(pressInfo.lastSeen) ? 'جارِ تحميل المحادثات السابقة...' : 'تم الطلب ✅ — ستظهر المحادثات تلقائياً عندما يفتح ' + APP_NAME + ' البرنامج', 4000);
+  } catch(e){ toast('تعذر الطلب — تأكد من الإنترنت'); }
+}
+async function serveHistory(d){
+  const conv = d.from;
+  const recs = (await DB.byConv(conv)).sort((a, b) => a.ts - b.ts).map(m => ({id: m.id, from: m.from, to: m.to, kind: m.kind, text: m.text || '', name: m.name || '',
+    mime: m.mime || '', size: m.size || 0, ts: m.ts, thumb: m.thumb || null, w: m.w || 0, h: m.h || 0, dur: m.dur || 0, reply: m.reply || null,
+    rid: m.rid || null, hk: m.fileKey || null, rx: m.rx || null}));
+  const rr = 'hist_' + uid();
+  const n = await uploadBlob(rr, new Blob([JSON.stringify(recs)], {type: 'application/json'}), 1);
+  await fs.collection('msgr_signal').add({to: conv, from: myId(), type: 'hist', rr, chunks: n, count: recs.length, ts: Date.now()});
+}
+async function loadHistory(d){
+  if (S.role !== 'teacher') return;
+  const parts = [];
+  for (let i = 0; i < d.chunks; i++) parts.push(b64ToBytes(await waitChunk(d.rr + '_' + i)));
+  releaseBlob(d.rr).catch(() => {});
+  const recs = JSON.parse(await new Blob(parts).text());
+  let added = 0, last = null;
+  for (const r of recs){
+    if (await DB.get('msgs', r.id)) continue;
+    const mine = r.from === myId(), hasFile = r.kind !== 'text' && (r.rid || r.hk);
+    const msg = {id: r.id, conv: S.phone, from: r.from, to: r.to, kind: r.kind || 'text', text: r.text, name: r.name, mime: r.mime, size: r.size,
+      ts: r.ts, status: mine ? 'delivered' : 'recv', mine, fileKey: null, rid: r.rid, thumb: r.thumb, w: r.w, h: r.h, dur: r.dur, reply: r.reply,
+      hist: true, hk: r.hk, fileState: hasFile ? (r.hk ? 'remote' : 'gone') : null,
+      rx: r.rx ? {mine: r.rx.theirs || null, theirs: r.rx.mine || null} : undefined};
+    await DB.put('msgs', msg); added++;
+    if (!last || msg.ts > last.ts) last = msg;
+  }
+  if (last) await touchConv(S.phone, last, false);
+  if (view === 'chat') await renderMessages();
+  toast(added ? 'تم تحميل ' + added + ' رسالة سابقة ✅ — اضغط على أي صورة أو ملف لتحميله' : 'لا توجد محادثات سابقة جديدة', 4000);
 }
 // الملفات الصغيرة: نطلب من جهاز المرسل رفعها مؤقتاً بدل الاتصال المباشر (يعمل على كل الشبكات)
 async function pullRelay(owner, rid, onProg){
@@ -1566,19 +1669,29 @@ async function pushLate(){
 async function handleLate(d){
   const ms = (await DB.all('msgs')).filter(m => !m.mine && m.from === d.from && m.rid === d.rid && !m.fileKey);
   if (!ms.length){ releaseBlob(d.rr).catch(() => {}); return; }
+  // لا نحمّل الملف الآن — نحفظ مكانه فقط، ويُحمّل عندما يضغط المستخدم عليه
   for (const m of ms){
-    if (dlProg[m.id] != null) continue;
-    dlProg[m.id] = 0; refreshMsg(m.id);
-    try {
-      const parts = [];
-      for (let i = 0; i < d.chunks; i++){ parts.push(b64ToBytes(await waitChunk(d.rr + '_' + i))); dlProg[m.id] = (i + 1) / d.chunks; refreshMsg(m.id); }
-      await DB.put('files', new Blob(parts, {type: d.mime || m.mime || ''}), m.id);
-      const cur = await DB.get('msgs', m.id);
-      if (cur){ cur.fileKey = m.id; cur.fileState = 'done'; await DB.put('msgs', cur); }
-    } catch(e){ console.warn(e); }
-    delete dlProg[m.id]; refreshMsg(m.id);
+    m.rr = d.rr; m.rc = d.chunks; if (!m.mime) m.mime = d.mime || '';
+    if (m.fileState === 'waiting' || m.fileState === 'gone') m.fileState = 'remote';
+    await DB.put('msgs', m); refreshMsg(m.id);
+    if (m.kind === 'audio') downloadMsg(m.id, true);
   }
-  releaseBlob(d.rr).catch(() => {});
+}
+// الملفات المرفوعة مؤقتاً ولم يحمّلها أحد خلال 14 يوماً تُحذف من السيرفر (يبقى تحميلها مباشرة من جهاز المرسل)
+async function purgeOldRelays(){
+  if (DEMO || !navigator.onLine) return;
+  const old = (await DB.all('msgs')).filter(m => m.mine && (m.relayed || m.relay) && !m.purged && Date.now() - m.ts > 14 * 86400000);
+  const done = new Set();
+  for (const m of old){
+    for (const rid of [m.rid, m.id + '_l']){
+      if (!rid || done.has(rid)) continue; done.add(rid);
+      try {
+        const ref = fs.collection('msgr_blobs').doc(rid), s = await ref.get();
+        if (s.exists){ const n = s.data().chunks || 0; for (let i = 0; i < n; i++) await fs.collection('msgr_chunks').doc(rid + '_' + i).delete().catch(() => {}); await ref.delete().catch(() => {}); }
+      } catch(e){}
+    }
+    m.purged = true; await DB.put('msgs', m);
+  }
 }
 async function waitChunk(id){
   const end = Date.now() + 120000;
@@ -1662,19 +1775,31 @@ async function sendBlob(dc, blob){
 /* ---------- التحميل عند الضغط ---------- */
 async function downloadMsg(id, silent){
   const m = await DB.get('msgs', id);
-  if (!m || m.mine || m.fileKey || dlProg[id] != null) return;
+  if (!m || (m.mine && !m.hist) || m.fileKey || dlProg[id] != null) return;
+  // رسائل السجل القديم: الملف موجود في جهاز المطبعة
+  // الملف مرفوع مؤقتاً على السيرفر: يُحمّل فوراً حتى لو كان المرسل غير متصل
+  if (m.rr && !DEMO){
+    if (await fetchRelay(id, m.rr, m.rc, m.mime)){
+      const cur = await DB.get('msgs', id);
+      if (cur && !silent){ if (cur.kind === 'file') fileActions(cur); if (cur.kind === 'audio') toggleAudio(cur); }
+      return;
+    }
+    const c2 = await DB.get('msgs', id); if (c2){ c2.rr = null; await DB.put('msgs', c2); }
+  }
+  const owner = m.hist ? 'press' : m.from, frid = m.hist ? m.hk : m.rid;
   dlProg[id] = 0; refreshMsg(id);
   try {
     const onP = p => { dlProg[id] = p; refreshMsg(id); };
     let blob;
+    if (!frid) throw new Error('gone');
     if (DEMO) blob = await demoFetch(m, onP);
-    else if (m.size <= RELAY_MAX) blob = await pullRelay(m.from, m.rid, onP);
+    else if (m.size <= RELAY_MAX) blob = await pullRelay(owner, frid, onP);
     else {
-      try { blob = await requestFile(m.from, m.rid, onP); }
+      try { blob = await requestFile(owner, frid, onP); }
       catch(err){
         if (err.message === 'gone' || m.size > PULL_MAX) throw err;
         dlProg[id] = 0; refreshMsg(id);
-        blob = await pullRelay(m.from, m.rid, onP);   // الطريقة المباشرة فشلت ← عبر السيرفر مؤقتاً
+        blob = await pullRelay(owner, frid, onP);   // الطريقة المباشرة فشلت ← عبر السيرفر مؤقتاً
       }
     }
     const cur = await DB.get('msgs', id); if (!cur) return;
@@ -1696,7 +1821,7 @@ const lastRetry = {};
 async function retryWaiting(peer){
   if (Date.now() - (lastRetry[peer] || 0) < 60000) return;
   lastRetry[peer] = Date.now();
-  const ms = (await DB.all('msgs')).filter(m => !m.mine && m.from === peer && !m.fileKey && (m.fileState === 'waiting' || (m.fileState === 'remote' && m.size <= RELAY_MAX)));
+  const ms = (await DB.all('msgs')).filter(m => (!m.mine || m.hist) && (m.hist ? 'press' : m.from) === peer && !m.fileKey && (m.fileState === 'waiting' || (m.kind === 'audio' && m.fileState === 'remote')));
   for (const m of ms) await downloadMsg(m.id, true);
 }
 
@@ -1950,8 +2075,17 @@ function soundPicker(k, onDone){
 let swReady = null;
 function registerSW(){
   if (DEMO || !('serviceWorker' in navigator)) return null;
-  if (!swReady) swReady = navigator.serviceWorker.register('sw.js?c=' + encodeURIComponent(JSON.stringify(firebaseConfig)))
-    .then(r => (swReg = r)).catch(e => { console.warn('sw', e); return null; });
+  // لكل برنامج (مطبعة/مدرس) عامل خلفية خاص به، حتى يكون لكل منهما رمز إشعارات مستقل حتى لو كانا على نفس الهاتف
+  const scope = typeof APP_ROLE !== 'undefined' ? './telegram-alkawthar-' + APP_ROLE : './';
+  if (!swReady) swReady = navigator.serviceWorker.register('sw.js?c=' + encodeURIComponent(JSON.stringify(firebaseConfig)), {scope})
+    .then(r => {
+      swReg = r;
+      // إزالة العامل القديم المشترك بين البرنامجين (كان يجعل الإشعارات تصل لبرنامج واحد فقط)
+      if (scope !== './') navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(x => {
+        if (x.scope === new URL('./', location.href).href) x.unregister();
+      })).catch(() => {});
+      return r;
+    }).catch(e => { console.warn('sw', e); return null; });
   return swReady;
 }
 async function setupNotifications(){
@@ -2095,9 +2229,11 @@ async function fetchRelay(id, rid, chunks, mime){
     if (cur){ cur.fileKey = id; cur.fileState = 'done'; await DB.put('msgs', cur); }
     delete dlProg[id]; refreshMsg(id);
     releaseBlob(rid).catch(e => console.warn(e));
+    return true;
   } catch(e){
     console.warn('relay', e);
     delete dlProg[id]; refreshMsg(id);   // يبقى «تحميل» بالطريقة المباشرة
+    return false;
   }
 }
 
@@ -2273,14 +2409,15 @@ function chatMenu(){
     ${S.role === 'press' && directory[openConv] ? `<div style="color:var(--mut);font-size:14px;margin-bottom:8px">${esc(directory[openConv].phone)} • ${esc(directory[openConv].province)}${directory[openConv].subject ? ' • ' + esc(directory[openConv].subject) : ''}</div>
       <button class="opt" data-a="pin">${I.key}الرقم السري: <b style="letter-spacing:2px">${esc(pins[openConv] || '—')}</b></button>` : ''}
     <button class="opt" data-a="clear">${I.trash}مسح المحادثة من جهازي</button>
-    ${S.role === 'teacher' ? `<button class="opt" data-a="photo">${I.cam.replace('width="28" height="28"', 'width="22" height="22"')}صورتي الشخصية</button><button class="opt" data-a="storage">${I.disk}ذاكرة الجهاز</button><button class="opt" data-a="settings">${I.gear}الإعدادات</button>` : ''}`);
+    ${S.role === 'teacher' ? `<button class="opt" data-a="photo">${I.cam.replace('width="28" height="28"', 'width="22" height="22"')}صورتي الشخصية</button><button class="opt" data-a="hist">${I.down}تحميل المحادثات السابقة</button><button class="opt" data-a="storage">${I.disk}ذاكرة الجهاز</button><button class="opt" data-a="settings">${I.gear}الإعدادات</button>` : ''}`);
   ov.querySelectorAll('.opt').forEach(b => b.onclick = async () => {
     ov.remove();
     const a = b.dataset.a;
     if (a === 'clear'){
       if (!await askConfirm('حذف كل رسائل وملفات هذه المحادثة من هذا الجهاز؟ الملفات التي أرسلتها لن يستطيع الطرف الآخر تحميلها بعد ذلك.', 'حذف')) return;
       await clearConv(openConv); renderMessages(); toast('تم المسح');
-    } else if (a === 'storage') showStorage();
+    } else if (a === 'hist') requestHistory();
+    else if (a === 'storage') showStorage();
     else if (a === 'settings') showSettings();
     else if (a === 'pin') pinActions(openConv);
     else if (a === 'photo') avatarSheet();
@@ -2371,7 +2508,7 @@ async function msgMenu(id){
     ${m.fileKey ? `<button class="opt" data-a="save">${I.save}حفظ في الجهاز</button>` : ''}
     ${m.fileKey && navigator.canShare ? `<button class="opt" data-a="share">${I.share}مشاركة</button>` : ''}
     ${m.mine && m.status === 'failed' ? `<button class="opt" data-a="retry">${I.send}إعادة الإرسال</button>` : ''}
-    <button class="opt" data-a="del" style="color:var(--danger)">${I.trash}حذف من جهازي</button>`);
+    <button class="opt" data-a="del" style="color:var(--danger)">${I.trash}حذف</button>`);
   ov.querySelectorAll('.opt').forEach(b => b.onclick = async () => {
     ov.remove();
     const a = b.dataset.a;
@@ -2379,12 +2516,7 @@ async function msgMenu(id){
     else if (a === 'save') (isMobile() ? saveFile : saveFileAs)(m.fileKey, m.name || 'file');
     else if (a === 'share') shareFile(m.fileKey, m.name || 'file');
     else if (a === 'retry') flushOutbox();
-    else if (a === 'del'){
-      if (playingId === id) stopAudio();
-      await DB.del('msgs', id);
-      if (m.fileKey && !(await DB.all('msgs')).some(x => x.fileKey === m.fileKey)) await DB.del('files', m.fileKey);
-      renderMessages();
-    }
+    else if (a === 'del') deleteFlow(m);
   });
 }
 async function showStorage(){
