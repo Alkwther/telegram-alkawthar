@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-press.json?v=4.5">
+<link rel="manifest" href="manifest-press.json?v=4.6">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -268,11 +268,11 @@ const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'press';   // هذا الملف خاص بـالمطبعة
-const APP_VERSION = '4.5';
-const MAX_FILE = 95 * 1024 * 1024;
+const APP_VERSION = '4.6';
+const MAX_FILE = 500 * 1024 * 1024;   // الملفات الكبيرة تُرفع على أجزاء
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
-const RELAY_MAX = 100 * 1024 * 1024;   // كل الملفات تُرفع وقت الإرسال — المستلم يحمّلها حتى لو خرج المرسل
+const RELAY_MAX = 500 * 1024 * 1024;   // كل الملفات تُرفع وقت الإرسال — المستلم يحمّلها حتى لو خرج المرسل
 // الملفات الأكبر: تُجرَّب الطريقة المباشرة أولاً، وإن فشلت تُنقل مؤقتاً عبر السيرفر حتى هذا الحجم
 const PULL_MAX = 100 * 1024 * 1024;
 const CHUNK = 600 * 1024;
@@ -2643,8 +2643,43 @@ async function uploadBlob(rid, blob, pending, onProg){
 const USE_R2 = !DEMO && !!PUSH_URL;
 const r2Url = key => PUSH_URL + '/f/' + encodeURIComponent(key);
 async function r2Token(){ return auth.currentUser ? await auth.currentUser.getIdToken() : ''; }
+const R2_PART = 20 * 1024 * 1024;
+function r2Xhr(method, url, body, t, onProg, type){
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest();
+    x.open(method, url);
+    x.setRequestHeader('Authorization', 'Bearer ' + t);
+    if (type) x.setRequestHeader('Content-Type', type);
+    if (x.upload && onProg) x.upload.onprogress = e => { if (e.lengthComputable) onProg(e.loaded); };
+    x.onload = () => { if (x.status === 200){ try { res(JSON.parse(x.responseText)); } catch(e){ res({}); } } else rej(new Error('r2 ' + x.status)); };
+    x.onerror = () => rej(new Error('net'));
+    x.send(body);
+  });
+}
 async function r2Put(key, blob, onProg){
   const t = await r2Token();
+  if (blob.size > 90 * 1024 * 1024){
+    // ملف كبير: يُرفع على أجزاء كل جزء 20 ميگا
+    const {uploadId} = await r2Xhr('POST', r2Url(key) + '?mpu=create', null, t, null, blob.type || 'application/octet-stream');
+    const parts = [], n = Math.ceil(blob.size / R2_PART);
+    try {
+      for (let i = 0; i < n; i++){
+        const part = blob.slice(i * R2_PART, Math.min(blob.size, (i + 1) * R2_PART));
+        let r, tries = 0;
+        while (true){
+          try { r = await r2Xhr('PUT', r2Url(key) + '?uploadId=' + encodeURIComponent(uploadId) + '&part=' + (i + 1), part, t, l => onProg && onProg((i * R2_PART + l) / blob.size)); break; }
+          catch(e){ if (++tries >= 3) throw e; await new Promise(z => setTimeout(z, 1500 * tries)); }
+        }
+        parts.push({partNumber: r.partNumber, etag: r.etag});
+        if (onProg) onProg(Math.min(1, (i + 1) * R2_PART / blob.size));
+      }
+      await r2Xhr('POST', r2Url(key) + '?mpu=complete&uploadId=' + encodeURIComponent(uploadId), JSON.stringify({parts}), t, null, 'application/json');
+    } catch(e){
+      r2Xhr('DELETE', r2Url(key) + '?uploadId=' + encodeURIComponent(uploadId), null, t).catch(() => {});
+      throw e;
+    }
+    return;
+  }
   await new Promise((res, rej) => {
     const x = new XMLHttpRequest();
     x.open('PUT', r2Url(key));
