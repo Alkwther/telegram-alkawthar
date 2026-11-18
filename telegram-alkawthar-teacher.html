@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#517da2">
-<link rel="manifest" href="manifest-teacher.json?v=4.4">
+<link rel="manifest" href="manifest-teacher.json?v=4.5">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -35,6 +35,7 @@ html,body{position:fixed;inset:0;overscroll-behavior:none}
 .av{width:52px;height:52px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:500;font-size:20px;flex-shrink:0;position:relative}
 .av.sm{width:40px;height:40px;font-size:17px}
 .av.lg{width:84px;height:84px;font-size:32px}
+.vh{position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0}
 .ph{color:#2481cc;text-decoration:underline;text-underline-offset:3px;cursor:pointer;-webkit-tap-highlight-color:rgba(36,129,204,.15);border-radius:4px;unicode-bidi:isolate;direction:ltr;display:inline-block}
 .av.xl{width:110px;height:110px;font-size:40px}
 .av.on::after{content:'';position:absolute;bottom:1px;left:1px;width:13px;height:13px;border-radius:50%;background:#4fce5d;border:2.5px solid #fff}
@@ -267,7 +268,7 @@ const PUSH_URL = 'https://telegram-alkawthar-push.tlkramalkwthr.workers.dev';
 
 const APP_NAME = 'مطبعة الكوثر';
 const APP_ROLE = 'teacher';   // هذا الملف خاص بـالمدرس
-const APP_VERSION = '4.4';
+const APP_VERSION = '4.5';
 const MAX_FILE = 95 * 1024 * 1024;
 // الصور والصوت والملفات حتى هذا الحجم تمر بالسيرفر مؤقتاً (ثوانٍ) وتُحذف فور وصولها — سريعة مثل التلكرام
 // الملفات الأكبر تنتقل مباشرة من جهاز إلى جهاز
@@ -1092,9 +1093,9 @@ async function openChat(conv, root){
       <button class="ib" id="hd">${I.dots}</button></div>
     <div class="chat"><div class="msgs" id="msgs"></div>
     <div class="comp" id="comp"></div></div>
-    <input type="file" id="fImg" accept="image/*,video/*" multiple hidden>
-    <input type="file" id="fCam" accept="image/*" capture="environment" hidden>
-    <input type="file" id="fAny" multiple hidden>`;
+    <input type="file" id="fImg" accept="image/*,video/*" multiple class="vh">
+    <input type="file" id="fCam" accept="image/*" capture="environment" class="vh">
+    <input type="file" id="fAny" multiple class="vh">`;
   if ($('#hb')) $('#hb').onclick = () => { if (history.state && history.state.chat) history.back(); else showList(); };
   if ($('#hm')) $('#hm').onclick = openDrawer;
   $('#hd').onclick = chatMenu;
@@ -1143,7 +1144,11 @@ function attachSheet(){
     <button data-i="fCam"><span class="c" style="background:#e9629b">${I.cam}</span>الكاميرا</button>
     <button data-i="fAny"><span class="c" style="background:#5bb7d4">${I.doc}</span>ملف</button></div>
     <div class="note" style="margin-top:12px">الملف يبقى في جهازك، وينتقل مباشرة للطرف الآخر عندما يضغط تحميل وأنت متصل.</div>`);
-  ov.querySelectorAll('.att button').forEach(b => b.onclick = () => { ov.remove(); $('#' + b.dataset.i).click(); });
+  ov.querySelectorAll('.att button').forEach(b => b.onclick = () => {
+    $('#' + b.dataset.i).click(); ov.remove();
+    // آيفون: الملفات المحفوظة في iCloud أو في الهاتف تظهر من «اختيار ملف» ← «تصفّح»
+    if (b.dataset.i === 'fAny' && /iPhone|iPad|iPod/.test(navigator.userAgent)) toast('اختر «اختيار ملف» ← ثم «تصفّح» بالأسفل ← iCloud Drive أو «على الـ iPhone»', 6000);
+  });
 }
 
 /* ---------- عرض الرسائل ---------- */
